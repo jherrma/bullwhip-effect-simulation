@@ -359,4 +359,88 @@ public class GateACloseoutTests
 
         Assert.True(ok);
     }
+
+    [Fact]
+    public void CapitalCost_ConstantDemand_MatchesRateValueStock()
+    {
+        // Convention (SerialChain, measurement block): for every period t of the window (t ≥ Warmup, Periods of them)
+        // capital[k] += CapitalRate · Value[k] · (max(0, on-hand_k) + pipeline_k), pipeline_k = items dispatched to stage k
+        // and not yet arrived at the end of t, excluding those arriving at t+1. CapitalCost is the SUM over the window
+        // (not a per-period mean): CapitalCost[k] = r · v_k · (mean on-hand + mean pipeline) · Periods.
+        // Constant demand μ = 100, L = 2 at all four stages, R = 1, normal mode, no clipping, InitialMean = μ:
+        //   a) z = 0: every stage orders q = μ, S = Lp·μ = 2μ = IP, every arrival (μ) is shipped on arrival, so on-hand = 0
+        //      and the pipeline is the shipment of period t that is due at t+2: μ·(L − 1) = 100 for every stage
+        //      (the top stage: its own order). Expected CapitalCost[k] = r·v_k·(0 + 100)·Periods.
+        //   b) KnownSigma σ = 10, z = 1: S = Lp·μ + z·σ·√Lp, so the steady on-hand is the safety term z·σ·√2 = 14.1421 at
+        //      every stage (the stage above ships μ per period, the order is μ per period) and the pipeline stays 100.
+        //      Expected CapitalCost[k] = r·v_k·(14.1421 + 100)·Periods after the one-off build-up of the safety stock.
+        // Deterministic, so the tolerance is 1e-9 relative (floating-point accumulation only).
+        const double rate = 0.05 / 52.0;
+        var value = new[] { 10.0, 20.0, 30.0, 40.0 };
+        var demand = Enumerable.Repeat(100.0, Warm + Periods).ToArray();
+        double safety = 1.0 * Sigma * Math.Sqrt(2.0);
+        foreach (var (name, cfg, onHand) in new[]
+        {
+            ("a) z=0", Four() with { Value = value, CapitalRate = rate }, 0.0),
+            ("b) known σ, z=1", Four() with
+            {
+                Value = value, CapitalRate = rate, Safety = SafetySource.KnownSigma, KnownSigma = Sigma, Z = new[] { 1.0, 1.0, 1.0, 1.0 },
+            }, safety),
+        })
+        {
+            var res = SerialChain.Run(cfg, demand);
+            for (int k = 0; k < 4; k++)
+            {
+                double expected = rate * value[k] * (onHand + 100.0) * Periods;
+                _out.WriteLine($"Capital {name} stage {k + 1}: sim={res.CapitalCost[k]:0.000000} ref={expected:0.000000} on-hand={res.MeanOnHand[k]:0.0000} pipeline={res.MeanPipeline[k]:0.0000}");
+                Assert.True(Math.Abs(res.MeanOnHand[k] - onHand) <= 1e-9 * 100, $"{name} stage {k + 1} on-hand");
+                Assert.True(Math.Abs(res.MeanPipeline[k] - 100.0) <= 1e-9 * 100, $"{name} stage {k + 1} pipeline");
+                Assert.True(Math.Abs(res.CapitalCost[k] / expected - 1.0) <= 1e-9, $"{name} stage {k + 1} capital cost");
+            }
+        }
+
+        // Zero rate gives zero cost.
+        var zero = SerialChain.Run(Four() with { Value = value }, demand);
+        Assert.All(zero.CapitalCost, c => Assert.Equal(0.0, c));
+    }
+
+    [Fact]
+    public void CapitalCost_IidDemand_IdentityAndPipelineByFlowConservation()
+    {
+        // iid N(100, 10²), L = 2, R = 1, z = 0, four stages, normal mode. The on-hand is E[max(0, net stock)] with no
+        // closed form here, so it is not asserted. Two derivable parts:
+        //   1) identity: CapitalCost[k] = r·v_k·(MeanOnHand[k] + MeanPipeline[k])·Periods, exact in every replication
+        //      (relative 1e-9; both sides are sums of the same terms).
+        //   2) the pipeline of stage k at the end of t is the shipment of stage k+1 in t (due at t+2; top stage: its own
+        //      order), so its window mean is the mean flow μ = 100 (Little: μ·(L − 1)) up to the backlog drift over the
+        //      window. Checked per stage with the suite rule (2 % and the Bonferroni CI over 4 stages).
+        const double rate = 0.05 / 52.0;
+        var value = new[] { 10.0, 20.0, 30.0, 40.0 };
+        var cfg = Four() with { Value = value, CapitalRate = rate };
+        var pipe = new double[4][];
+        for (int k = 0; k < 4; k++)
+        {
+            pipe[k] = new double[Reps];
+        }
+
+        for (int rep = 0; rep < Reps; rep++)
+        {
+            var res = SerialChain.Run(cfg, GateA.Demand(rep, Warm + Periods, 100, 0, Sigma));
+            for (int k = 0; k < 4; k++)
+            {
+                double expected = rate * value[k] * (res.MeanOnHand[k] + res.MeanPipeline[k]) * Periods;
+                Assert.True(Math.Abs(res.CapitalCost[k] / expected - 1.0) <= 1e-9, $"rep {rep} stage {k + 1}");
+                pipe[k][rep] = res.MeanPipeline[k];
+            }
+        }
+
+        double z = GateA.BonferroniZ(4);
+        bool ok = true;
+        for (int k = 0; k < 4; k++)
+        {
+            ok &= Check($"Capital iid stage {k + 1} mean pipeline", 100.0, pipe[k], z);
+        }
+
+        Assert.True(ok);
+    }
 }
