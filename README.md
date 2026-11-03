@@ -1,24 +1,44 @@
-# Bullwhip-Effekt: Simulation (POC)
+# Bullwhip-Effekt: Simulation
 
-Stand: 2026-11-03. Umsetzung von M0 und M1 aus `PLAN.md` (Bachelorarbeit, Bullwhip-Effekt; Planungsstand in
-`/home/jherrmann/Documents/claude_working_dir/bullwhip-effekt/PLAN.md`).
+Stand: 2026-11-03. Simulation zur Bachelorarbeit über den Bullwhip-Effekt in einer mehrstufigen Lieferkette.
+Planung und Begründungen: `bullwhip-effekt/PLAN.md`, Entscheidungen: `bullwhip-effekt/DECISIONS.md`, Quellen: `bullwhip-effekt/ZITATE.md` (Bachelorarbeit-Ordner). Arbeitsregeln für Entwickler und Agenten: `CLAUDE.md`.
 
-## Was gebaut ist
+## Aufbau
 
-- **M0 (Grundgerüst):** Solution `Bullwhip.sln`, Projekte `src/Bullwhip.Core` (Modell, keine I/O) und `tests/Bullwhip.Tests` (xUnit). Deterministische Zufallszahlen (SplitMix64 mit Box–Muller).
-- **M1 (kleinster Schnitt):** ein Händler, AR(1)-Nachfrage (Chen et al. 2000, Gl. 1), gleitender Durchschnitt MA(p), Order-up-to mit z = 0, ohne Clipping. Prüfung V1 gegen Chen et al. (2000), Gl. (5), auf dem vollen Raster (L ∈ {1,2,4}, p ∈ {2,4,8,16}, ρ ∈ {0, 0.5, −0.5}; 36 Punkte, je 100 Replikationen × 2000 Perioden nach 200 Warm-up).
+- `src/Bullwhip.Core`: Modell ohne I/O.
+  - `Chain/`: mehrstufige Kette (`SerialChain`), Konfiguration (`ChainConfig`), Deckungsregeln (`CoverRules`, `PhaseTarget`), Schutzfenster, Kaplan-Lieferzeit.
+  - `Forecast/`: gleitender Durchschnitt, Stufenprognose, Fehlerfenster, EWMA-Absolutfehler.
+  - `Demand/`: AR(1)-Nachfrage.
+  - `Analytic/`: geschlossene Formeln mit Quellen (Chen et al. 2000; Chen, Ryan & Simchi-Levi 2000).
+  - `Validation/`: Prüfungen gegen die Literatur (`ChenSingleStageCheck` für V1, `GateA` für die übrigen Gate-A-Prüfungen).
+  - `Rng/`, `Stats/`: SplitMix64 mit Box–Muller, Normalverteilung (Abramowitz–Stegun 7.1.26, Bisektion für Quantile).
+- `tests/Bullwhip.Tests`: xUnit-Tests. `StructureRulesTests` prüft Methodenlänge und Verschachtelung über den ganzen Code.
 
-## Ergebnis
+## Status
 
-- `dotnet test`: 7 von 7 Tests bestehen, darunter V1 (36/36 Punkte bestehen; Abweichung höchstens 0,3 %) und V11 (gleicher Seed, gleiches Ergebnis).
+- `dotnet build --no-incremental`: 0 Warnungen, 0 Fehler.
+- `dotnet test`: 46 von 46 Tests bestehen.
+- Gate A: alle Prüfungen sind umgesetzt und bestehen. Die Abnahme durch den Autor steht aus (`DECISIONS.md`, F8).
+- Hash-Baselines: Vereinfachungen und Umbauten müssen die Ergebnis-Hashes unverändert lassen (siehe `CLAUDE.md`).
+- Nicht umgesetzt: Kostenkalibrierung K (M3), CLI, Konfiguration aus JSON, CSV-Ausgabe.
 
-## Abweichungen vom Plan
+## Modellannahmen (Auswahl)
 
-- **MathNet.Numerics nicht verwendet.** Das Paket ist im lokalen NuGet-Cache nicht vorhanden. Stattdessen eingebauter Normalverteilungs-Sampler (Box–Muller) und eigene Normalverteilungsfunktion (Abramowitz–Stegun 7.1.26, Fehler ~1,5·10⁻⁷). Für V1 ausreichend; vor einer Verwendung in Gate B nachprüfen.
-- **FluentResults nicht verwendet** (in M1 nicht nötig). Kommt mit der Konfiguration und der CLI (M0 vollständig).
-- **CLI fehlt** (`Bullwhip.Cli` mit `validate`/`run`). Die V1-Ausgabe läuft über die Testausgabe.
-- **Noch nicht implementiert:** Mehrstufenkette (M2), Kosten und K (M3), Konfiguration aus JSON, CSV-Ausgabe, Kaplan-Lieferzeit (M7).
+- Basis-Vorlaufzeit: Mittel 10 Tage (1,43 Wochen), CV 0,30. Quelle: APQC-Benchmark (USA, Median, n = 3.077). Sensitivitäten 7 Tage, 4 Tage und 3,6 Wochen (`DECISIONS.md`, C24).
+- Nicht-ganzzahlige Vorlaufzeit: bei R = 1 im Kaplan-Modus. Bei R > 1 gilt die Deckungsregel B (CycleAverage) (`DECISIONS.md`, C21). Die Regel für vorgelagerte Stufen ist eine Modellannahme ohne Quelle (F6).
+- Start: leerer Start mit Start-Überbestellung (600 bei R = 4, Phase 0). Im Warm-up ohne Wirkung auf die Messung; für Experimente mit geklemmten Bestellungen Vorbelegung (`DECISIONS.md`, F5).
+- Eingabeprüfung: L < 1 und zu kurze Stufen-Arrays werfen `ArgumentException` (C22).
 
-## Nicht geprüft
+## Bauen und testen
 
-- V1 gilt nur für Stufe 1 bei z = 0. Die Verteilung der Lieferzeit und die Zeitabläufe der Lagerbewegungen sind hier nicht enthalten; sie kommen mit V8 und V13–V15.
+```
+dotnet build --no-incremental
+dotnet test
+```
+
+## Bekannte Lücken
+
+- Keine CLI und keine Konfiguration aus JSON; die Ausgabe läuft über die Testausgabe.
+- V10 (Chen et al., exponentielle Glättung) ist gegen das Original geprüft, aber noch nicht im Testcode (Meilenstein M7).
+- Ryans Konstante (Dissertation 1997) ist nicht beschafft; unsere Ableitung ersetzt sie vorläufig (F7).
+- Kaplan- und stochastische Lieferzeit sind optional; Standard ist aus.
