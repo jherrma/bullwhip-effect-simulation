@@ -32,7 +32,7 @@ public class GateACloseoutTests
     // precision, cross-checked against quadrature of the density (|ΔF| ≤ 4e−13). The rounding moves the moments a little:
     // E[T] = 5.39999922, so E[L] = 6.39999922 (7.8e−7 below 6.4; an earlier coarse quadrature put it at 1e−4), CV(T) = 0.3047.
     // The hazard is nondecreasing (checked by the KaplanLeadTime constructor).
-    private static readonly double[] LagBase =
+    internal static readonly double[] LagBase =
     {
         1.0215369815754723e-08, 0.00031839334897785067, 0.014677007230507447, 0.09163712768244942,
         0.20608523492045466, 0.25139573696779643, 0.2051233796515591, 0.12615514375022455,

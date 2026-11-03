@@ -1,7 +1,8 @@
 namespace Bullwhip.Core.Chain;
 
 /// <summary>
-/// Weights of the realised side of the protection-period error, D(t0, t0+Lp], for a non-integer Lp (R = 1 only).
+/// Weights of the realised side of the protection-period error, D(t0, t0+Lp], for a non-integer Lp (R = 1; at R &gt; 1 through
+/// <see cref="CoverRules.Window"/>, for periods or lumps).
 /// </summary>
 /// <remarks>
 /// Integer Lp: the exact per-period sum over (t0, t0+Lp] (SerialChain, unchanged). Non-integer Lp = n + f, 0 &lt; f &lt; 1,

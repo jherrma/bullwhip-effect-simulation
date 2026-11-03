@@ -17,6 +17,28 @@ public enum SafetySource
 }
 
 /// <summary>
+/// Cover c of the order-up-to level S = c·μ̂ + z·σ̂ at R &gt; 1 (periods of mean demand). Derivations and the upstream rule of
+/// each option in <see cref="CoverRules"/>. At R = 1 every option equals the default (c = E[L]) and is ignored.
+/// </summary>
+public enum CoverRule
+{
+    /// <summary>
+    /// Default, current behaviour: c = L + R − 1 at the retailer and n·R upstream (<see cref="PhaseTarget"/>), from the planning
+    /// L; at R &gt; 1 the planning L must be an integer (a non-integer one throws).
+    /// </summary>
+    Integer,
+
+    /// <summary>(A) Worst phase: c = max over the phase of the mean exposure E[D(τ, t]]/μ. Point-mass L: L + R − 1 and n·R.</summary>
+    WorstPhase,
+
+    /// <summary>(B) Cycle average: c = E_L[integer cover(L)] (time-average net stock = z·σ̂ + L-averaged cycle stock). Point-mass L: as Integer.</summary>
+    CycleAverage,
+
+    /// <summary>(C) Lots in transit × R: c = R·Σ_j P(L &gt; jR) at every stage. Point-mass L: R·⌈L/R⌉ (differs from Integer).</summary>
+    LotsInTransit,
+}
+
+/// <summary>
 /// Configuration of a serial chain. Index 0 is the retailer (downstream); the last index is the upstream-most stage,
 /// which is supplied by an external source (plan S5). LeadTimes[k] is the model lead time L_k of stage k's replenishment.
 /// </summary>
@@ -89,4 +111,11 @@ public sealed record ChainConfig
 
     /// <summary>Seed of the lead-time streams: stage k draws from SplitMix64.Derive(LeadTimeSeed, k).</summary>
     public ulong LeadTimeSeed { get; init; }
+
+    /// <summary>
+    /// Cover rule at R &gt; 1 (<see cref="CoverRules"/>). Default <see cref="CoverRule.Integer"/>: unchanged behaviour. The other
+    /// options compute c from the lag pmf (Kaplan mode) or a point mass at the integer L (deterministic arrivals) and allow a
+    /// non-integer planning L at R &gt; 1. Ignored at R = 1.
+    /// </summary>
+    public CoverRule Cover { get; init; } = CoverRule.Integer;
 }

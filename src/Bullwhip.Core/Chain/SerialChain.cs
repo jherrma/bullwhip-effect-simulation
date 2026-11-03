@@ -64,7 +64,9 @@ public static class SerialChain
         // end of t is S_τ − D(τ, t] with τ the newest order already received, and t − τ has the lag distribution of L
         // (Kaplan cuts iid), so E[NS] = (c − E[L])·μ + z·σ̂ in every period and c = E[L]. At R > 1 the per-phase mean of
         // t − τ (and of the lumps in (τ, t]) is smoothed by the random arrivals: the worst-phase rule behind PhaseTarget,
-        // the cycle-average rule and the order-time rule no longer coincide, so no cover is defined for a real L there.
+        // the cycle-average rule and the order-time rule no longer coincide, so the default (CoverRule.Integer) defines no
+        // cover for a real L there; the options A, B, C of ChainConfig.Cover (CoverRules) each define one.
+        bool ruled = cfg.Cover != CoverRule.Integer && r > 1;
         var fixedLead = new int[n];
         for (int k = 0; k < n; k++)
         {
@@ -81,9 +83,9 @@ public static class SerialChain
                     throw new ArgumentException($"Stage {k}: a non-integer lead time {l} needs StochasticLeadTimes (deterministic arrivals are integer).");
                 }
 
-                if (r > 1)
+                if (r > 1 && !ruled)
                 {
-                    throw new ArgumentException($"Stage {k}: a non-integer planning lead time {l} is supported at R = 1 only (no cover rule for R > 1).");
+                    throw new ArgumentException($"Stage {k}: a non-integer planning lead time {l} is supported at R = 1 only (no cover rule for R > 1; set ChainConfig.Cover).");
                 }
             }
 
@@ -126,7 +128,8 @@ public static class SerialChain
         // Periods of mean demand that S covers: Lp, or n·R for the lumpy incoming demand of an upstream stage at R > 1
         // (PhaseTarget). The error term covers the forecast input, which is POS demand under info sharing.
         // Lp is real (R = 1, Kaplan mean) or an integer (R > 1). Realised error window: (t0, t0+⌈Lp⌉] with all weights 1
-        // for an integer Lp (the plain sum below), ProtectionWindow weights otherwise (null = integer).
+        // for an integer Lp (the plain sum below), ProtectionWindow weights otherwise (null = integer). With a CoverRules
+        // option at R > 1, c and the weights come from the lead-time pmf instead (the loop is the same).
         var cover = new double[n];
         var coverObs = new double[n];
         var lps = new double[n];
@@ -135,8 +138,25 @@ public static class SerialChain
         for (int k = 0; k < n; k++)
         {
             double lpk = cfg.LeadTimes[k] + r - 1;
-            lps[k] = lpk;
             span[k] = (int)Math.Ceiling(lpk);
+            if (ruled)
+            {
+                // CoverRules option at R > 1: c from the lead-time pmf (Kaplan) or a point mass at the integer L. The error
+                // compares against the smooth cover of the option for POS input (retailer, info sharing), the lumpy one
+                // otherwise, over the matching window (CoverRules.Window). KnownSigma scales by √(smooth cover).
+                double[] pmf = CoverRules.LeadPmf(kaplan?[k], fixedLead[k]);
+                double smooth = CoverRules.Cover(cfg.Cover, pmf, r, null);
+                int? a = k > 0 ? PhaseTarget.Offset(r, phases[k], phases[k - 1]) : null;
+                bool lumpyObs = a != null && !cfg.InfoSharing;
+                cover[k] = a == null ? smooth : CoverRules.Cover(cfg.Cover, pmf, r, a);
+                coverObs[k] = lumpyObs ? cover[k] : smooth;
+                lps[k] = smooth;
+                weights[k] = CoverRules.Window(coverObs[k], r, lumpyObs ? a : null, span[k]);
+                span[k] = weights[k]!.Length;
+                continue;
+            }
+
+            lps[k] = lpk;
             weights[k] = lpk == Math.Floor(lpk) ? null : ProtectionWindow.Weights(lpk);
             cover[k] = k > 0 && r > 1 ? r * PhaseTarget.Lumps((int)lpk, r, phases[k], phases[k - 1]) : lpk;
             coverObs[k] = cfg.InfoSharing ? lpk : cover[k];
@@ -205,6 +225,7 @@ public static class SerialChain
         var shortageCost = new double[n];
         var orderCost = new double[n];
         var errSq = new double[n];
+        var errSum = new double[n];
         var errCount = new int[n];
         var sigmaSum = new double[n];
         var sigmaCount = new int[n];
@@ -293,6 +314,7 @@ public static class SerialChain
                             if (t >= cfg.Warmup)
                             {
                                 errSq[k] += e * e;
+                                errSum[k] += e;
                                 errCount[k]++;
                             }
                         }
@@ -308,6 +330,7 @@ public static class SerialChain
                         if (t >= cfg.Warmup)
                         {
                             errSq[k] += e1 * e1;
+                            errSum[k] += e1;
                             errCount[k]++;
                         }
                     }
@@ -415,6 +438,8 @@ public static class SerialChain
             OrderCost = orderCost,
             OrderCount = orderCount,
             ProtectionErrorRms = errSq.Select((v, k) => errCount[k] > 0 ? Math.Sqrt(v / errCount[k]) : 0.0).ToArray(),
+            ProtectionErrorMean = errSum.Select((v, k) => errCount[k] > 0 ? v / errCount[k] : 0.0).ToArray(),
+            CoverPeriods = cover.ToArray(),
             MeanSigmaHat = sigmaSum.Select((v, k) => sigmaCount[k] > 0 ? v / sigmaCount[k] : 0.0).ToArray(),
             OnHandEnd = onHand,
             BacklogEnd = backlog,

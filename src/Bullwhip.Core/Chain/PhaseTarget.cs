@@ -27,7 +27,13 @@ public static class PhaseTarget
     /// <summary>Number n of the customer's order times in the protection window (t0, t0+Lp] of an own order time t0.</summary>
     public static int Lumps(int lp, int r, int ownPhase, int customerPhase)
     {
-        int a = (((customerPhase - ownPhase - 1) % r) + r) % r + 1;
+        int a = Offset(r, ownPhase, customerPhase);
         return (lp - a) / r + 1;
+    }
+
+    /// <summary>Offset a in 1..R of the customer's first order time after an own order time t0 (it lands at t0 + a).</summary>
+    public static int Offset(int r, int ownPhase, int customerPhase)
+    {
+        return (((customerPhase - ownPhase - 1) % r) + r) % r + 1;
     }
 }

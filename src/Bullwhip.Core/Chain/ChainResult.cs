@@ -47,6 +47,12 @@ public sealed class ChainResult
     /// </summary>
     public required double[] ProtectionErrorRms { get; init; }
 
+    /// <summary>Mean of the same errors (0 without an estimated σ̂): the bias of the realised window against c·μ̂.</summary>
+    public required double[] ProtectionErrorMean { get; init; }
+
+    /// <summary>Cover c per stage: S = c·μ̂ + z·σ̂ (periods of mean demand; CoverRule).</summary>
+    public required double[] CoverPeriods { get; init; }
+
     /// <summary>Mean σ̂ over the order times in the window (0 without an estimated σ̂); z·MeanSigmaHat is the mean safety term of S.</summary>
     public required double[] MeanSigmaHat { get; init; }
 
