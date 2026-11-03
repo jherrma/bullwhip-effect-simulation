@@ -5,7 +5,10 @@ using Xunit.Abstractions;
 
 namespace Bullwhip.Tests;
 
-/// <summary>Cover rules A, B, C at R = 4 (ChainConfig.Cover, CoverRules): reduction to the integer rule and Kaplan identities.</summary>
+/// <summary>
+/// Cover rules A, B, C at R = 4 (ChainConfig.Cover, CoverRules): reduction to the integer rule, Kaplan identities, and the
+/// default (integer rule for integer L, B for a real L).
+/// </summary>
 public class CoverRuleTests
 {
     private const int R = 4;
@@ -75,31 +78,7 @@ public class CoverRuleTests
                 LeadTimes = new[] { el, el, el, el }, Window = 8, R = R, Phases = new[] { 0, 1, 2, 3 }, InitialMean = 100, Warmup = warm,
                 PerfectSupplier = true, StochasticLeadTimes = new[] { lt, lt, lt, lt }, Cover = rule,
             };
-            var exposure = new double[4][];
-            for (int k = 0; k < 4; k++)
-            {
-                exposure[k] = new double[reps];
-            }
-
-            for (int rep = 0; rep < reps; rep++)
-            {
-                var c = cfg with { LeadTimeSeed = GateA.LeadTimeSeed(rep) };
-                var r0 = SerialChain.Run(c with { Z = new[] { 0.0, 0, 0, 0 } }, flat);
-                var r2 = SerialChain.Run(c with { Z = new[] { 2.0, 2, 2, 2 } }, flat);
-                covers[rule] = r0.CoverPeriods;
-                for (int k = 0; k < 4; k++)
-                {
-                    Assert.True(Math.Abs(r0.MeanOnHand[k] - r2.MeanOnHand[k]) < 1e-9, $"{rule} stage {k + 1}: phantom safety stock");
-                    Assert.True(r2.MeanSigmaHat[k] < 1e-9, $"{rule} stage {k + 1}: σ̂ = {r2.MeanSigmaHat[k]:E2} at σ = 0");
-                    double ns = 0;
-                    for (int t = warm; t < periods; t++)
-                    {
-                        ns += r0.OnHandPeriod[k][t] - r0.BacklogPeriod[k][t];
-                    }
-
-                    exposure[k][rep] = r0.CoverPeriods[k] - ns / (periods - warm) / 100.0;
-                }
-            }
+            var exposure = SampleExposurePerStage(cfg, rule, flat, reps, warm, periods, covers);
 
             for (int k = 0; k < 4; k++)
             {
@@ -119,5 +98,75 @@ public class CoverRuleTests
         }
 
         Assert.True(Math.Abs(covers[CoverRule.WorstPhase][0] - covers[CoverRule.LotsInTransit][0]) < 1e-12);
+    }
+
+    // One cover rule over all replications on constant demand: the z = 0 and z = 2 runs of each replication (asserts no
+    // phantom safety stock and σ̂ = 0), the cover of the z = 0 run in covers[rule], and per stage and replication the
+    // time-average exposure c − mean NS/μ of the z = 0 run.
+    private static double[][] SampleExposurePerStage(
+        ChainConfig cfg, CoverRule rule, double[] flat, int reps, int warm, int periods, Dictionary<CoverRule, double[]> covers)
+    {
+        var exposure = new double[4][];
+        for (int k = 0; k < 4; k++)
+        {
+            exposure[k] = new double[reps];
+        }
+
+        for (int rep = 0; rep < reps; rep++)
+        {
+            var c = cfg with { LeadTimeSeed = GateA.LeadTimeSeed(rep) };
+            var r0 = SerialChain.Run(c with { Z = new[] { 0.0, 0, 0, 0 } }, flat);
+            var r2 = SerialChain.Run(c with { Z = new[] { 2.0, 2, 2, 2 } }, flat);
+            covers[rule] = r0.CoverPeriods;
+            for (int k = 0; k < 4; k++)
+            {
+                Assert.True(Math.Abs(r0.MeanOnHand[k] - r2.MeanOnHand[k]) < 1e-9, $"{rule} stage {k + 1}: phantom safety stock");
+                Assert.True(r2.MeanSigmaHat[k] < 1e-9, $"{rule} stage {k + 1}: σ̂ = {r2.MeanSigmaHat[k]:E2} at σ = 0");
+                double ns = 0;
+                for (int t = warm; t < periods; t++)
+                {
+                    ns += r0.OnHandPeriod[k][t] - r0.BacklogPeriod[k][t];
+                }
+
+                exposure[k][rep] = r0.CoverPeriods[k] - ns / (periods - warm) / 100.0;
+            }
+        }
+
+        return exposure;
+    }
+
+    [Fact]
+    public void Default_NonIntegerLAtRGreaterOne_IsCycleAverage()
+    {
+        // ChainConfig.Cover unset with a real planning L at R > 1: option B (CycleAverage) for the whole chain. Setup of the
+        // Kaplan test above (base lag E[L] = 6.4, R = 4, phases 0123, perfect supplier), iid demand and z = 1 so that σ̂ > 0:
+        // the default run is bit-identical to Cover = CycleAverage, the retailer cover is E[L] + R − 1 = 9.4 (A: 7.998), and
+        // Integer set explicitly still rejects the real L. Integer L keeps the integer rule (first test, baseline run).
+        var lt = new KaplanLeadTime(GateACloseoutTests.LagBase);
+        double el = lt.MeanLeadTime;
+        var d = GateA.Demand(0, 2200, 100, 0, 10);
+        var cfg = new ChainConfig
+        {
+            LeadTimes = new[] { el, el, el, el }, Window = 8, R = R, Phases = new[] { 0, 1, 2, 3 }, Z = new[] { 1.0, 1, 1, 1 },
+            InitialMean = 100, Warmup = 200, PerfectSupplier = true, StochasticLeadTimes = new[] { lt, lt, lt, lt },
+            LeadTimeSeed = GateA.LeadTimeSeed(0),
+        };
+        Assert.Null(cfg.Cover);
+        var def = SerialChain.Run(cfg, d);
+        var b = SerialChain.Run(cfg with { Cover = CoverRule.CycleAverage }, d);
+        var a = SerialChain.Run(cfg with { Cover = CoverRule.WorstPhase }, d);
+        _out.WriteLine($"E[L] = {el:0.00000000}: default cover {string.Join(" ", def.CoverPeriods.Select(v => v.ToString("0.0000")))}; B {string.Join(" ", b.CoverPeriods.Select(v => v.ToString("0.0000")))}; A {string.Join(" ", a.CoverPeriods.Select(v => v.ToString("0.0000")))}");
+        Assert.Equal(b.CoverPeriods, def.CoverPeriods);
+        for (int k = 0; k < 4; k++)
+        {
+            Assert.True(b.Orders[k].SequenceEqual(def.Orders[k]), $"stage {k + 1} orders");
+            Assert.True(b.OnHandPeriod[k].SequenceEqual(def.OnHandPeriod[k]), $"stage {k + 1} on-hand");
+        }
+
+        Assert.Equal(b.ProtectionErrorRms, def.ProtectionErrorRms);
+        Assert.True(Math.Abs(def.CoverPeriods[0] - (el + R - 1)) < 1e-12);
+        Assert.True(Math.Abs(def.CoverPeriods[0] - 9.4) < 1e-5);
+        Assert.True(Math.Abs(a.CoverPeriods[0] - 7.998) < 5e-4);
+        Assert.Throws<ArgumentException>(() => SerialChain.Run(cfg with { Cover = CoverRule.Integer }, d));
     }
 }

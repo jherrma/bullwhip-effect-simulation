@@ -78,10 +78,13 @@ public static class GateA
         return Normal.Quantile(1.0 - Alpha / (2.0 * m));
     }
 
-    /// <summary>Plan pass rule: within 2 % relative AND inside the Bonferroni interval.</summary>
+    /// <summary>
+    /// Plan pass rule: within <see cref="ChenSingleStageCheck.RelativeTolerance"/> (2 %) relative AND inside the Bonferroni
+    /// interval.
+    /// </summary>
     public static bool Passes(double reference, double mean, double se, double z)
     {
-        return Math.Abs(mean / reference - 1.0) <= 0.02 && Math.Abs(mean - reference) <= z * se;
+        return Math.Abs(mean / reference - 1.0) <= ChenSingleStageCheck.RelativeTolerance && Math.Abs(mean - reference) <= z * se;
     }
 
     /// <summary>Filter reference, iid demand, stage k (1-based): Σ_j C(k,j)² a^(2(k−j)) b^(2j), a = 1+Lp/p, b = Lp/p.</summary>

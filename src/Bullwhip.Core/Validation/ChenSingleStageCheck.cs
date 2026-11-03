@@ -67,7 +67,7 @@ public static class ChenSingleStageCheck
             var rng = new SplitMix64(SplitMix64.Derive(BaseSeed, (ulong)r));
             double[] demand = Ar1Demand.Generate(length, Mu, rho, Sigma, rng);
             double[] orders = SingleStageOrders.Compute(demand, leadTime, window);
-            ratios[r] = SampleVariance(orders, warmup, length) / varianceDemand;
+            ratios[r] = Descriptive.Variance(orders, warmup, length) / varianceDemand;
         }
 
         double mean = ratios.Average();
@@ -79,25 +79,6 @@ public static class ChenSingleStageCheck
         bool insideInterval = Math.Abs(analytic - mean) <= bonferroniZ * standardError;
 
         return new ChenCaseResult(leadTime, window, rho, analytic, mean, standardError, bonferroniZ, relativeOk, insideInterval);
-    }
-
-    private static double SampleVariance(double[] values, int from, int to)
-    {
-        double sum = 0.0;
-        for (int i = from; i < to; i++)
-        {
-            sum += values[i];
-        }
-
-        double mean = sum / (to - from);
-        double ss = 0.0;
-        for (int i = from; i < to; i++)
-        {
-            double d = values[i] - mean;
-            ss += d * d;
-        }
-
-        return ss / (to - from);
     }
 
     private static List<(int, int, double)> BuildGrid()

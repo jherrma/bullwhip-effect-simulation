@@ -1,11 +1,11 @@
 namespace Bullwhip.Core.Chain;
 
 /// <summary>
-/// Weights of the realised side of the protection-period error, D(t0, t0+Lp], for a non-integer Lp (R = 1; at R &gt; 1 through
+/// Weights of the realised side of the protection-period error, D(t0, t0+Lp] (also the building block of
 /// <see cref="CoverRules.Window"/>, for periods or lumps).
 /// </summary>
 /// <remarks>
-/// Integer Lp: the exact per-period sum over (t0, t0+Lp] (SerialChain, unchanged). Non-integer Lp = n + f, 0 &lt; f &lt; 1,
+/// Integer Lp: all weights 1, the exact per-period sum over (t0, t0+Lp]. Non-integer Lp = n + f, 0 &lt; f &lt; 1,
 /// arises from planning on a non-integer E[L] under Kaplan lead times. The target is the protection-period demand of the
 /// planning model: mean Lp·μ and, for iid demand, variance Lp·σ², so that e = Σ a_i·D_{t0+i} − Lp·μ̂(t0) has
 /// E[e²] = σ²(Lp + Lp²/p), the integer-Lp formula (μ̂ uses the p periods up to t0, disjoint from the window). This needs

@@ -26,20 +26,24 @@ public enum SafetySource
 
 /// <summary>
 /// Cover c of the order-up-to level S = c·μ̂ + z·σ̂ at R &gt; 1 (periods of mean demand). Derivations and the upstream rule of
-/// each option in <see cref="CoverRules"/>. At R = 1 every option equals the default (c = E[L]) and is ignored.
+/// each option in <see cref="CoverRules"/>. At R = 1 every option equals the default (c = E[L]) and is ignored. The default
+/// (<see cref="ChainConfig.Cover"/> null) is Integer for integer planning L and CycleAverage (B) for a non-integer one.
 /// </summary>
 public enum CoverRule
 {
     /// <summary>
-    /// Default, current behaviour: c = L + R − 1 at the retailer and n·R upstream (<see cref="PhaseTarget"/>), from the planning
-    /// L; at R &gt; 1 the planning L must be an integer (a non-integer one throws).
+    /// Integer rule: c = L + R − 1 at the retailer and n·R upstream (<see cref="PhaseTarget"/>), from the planning L; at R &gt; 1
+    /// the planning L must be an integer (set explicitly with a non-integer one, it throws). The default for integer L.
     /// </summary>
     Integer,
 
     /// <summary>(A) Worst phase: c = max over the phase of the mean exposure E[D(τ, t]]/μ. Point-mass L: L + R − 1 and n·R.</summary>
     WorstPhase,
 
-    /// <summary>(B) Cycle average: c = E_L[integer cover(L)] (time-average net stock = z·σ̂ + L-averaged cycle stock). Point-mass L: as Integer.</summary>
+    /// <summary>
+    /// (B) Cycle average: c = E_L[integer cover(L)] (time-average net stock = z·σ̂ + L-averaged cycle stock). Point-mass L: as
+    /// Integer. The default at R &gt; 1 when a planning L is non-integer.
+    /// </summary>
     CycleAverage,
 
     /// <summary>(C) Lots in transit × R: c = R·Σ_j P(L &gt; jR) at every stage. Point-mass L: R·⌈L/R⌉ (differs from Integer).</summary>
@@ -55,7 +59,8 @@ public sealed record ChainConfig
     /// <summary>
     /// Planning lead time L_k per stage; S covers Lp = L_k + R − 1 periods of mean demand. Deterministic arrivals
     /// (<see cref="StochasticLeadTimes"/> null): an integer, the physical lead time. Kaplan mode: E[L_k] of the lag
-    /// distribution, which may be non-integer at R = 1 (the base case E[L] = 6.4); R &gt; 1 needs an integer (SerialChain).
+    /// distribution, which may be non-integer (the base case E[L] = 6.4); at R &gt; 1 a non-integer one uses a cover rule,
+    /// by default CycleAverage (<see cref="Cover"/>).
     /// </summary>
     public required double[] LeadTimes { get; init; }
 
@@ -119,7 +124,7 @@ public sealed record ChainConfig
     /// If set (one entry per stage): Kaplan (1970) no-crossing stochastic lead time of each stage's replenishment
     /// (plan S10). Arrivals of shipments (or of the orders themselves for a perfect supplier and the top stage) follow
     /// <see cref="KaplanLeadTime"/>. LeadTimes[k] stays the planning lead time and must equal E[L_k] (planning on the
-    /// known mean); at R = 1 it may be non-integer. Null (default): deterministic L_k, unchanged behaviour.
+    /// known mean); it may be non-integer (<see cref="Cover"/> at R &gt; 1). Null (default): deterministic L_k.
     /// </summary>
     public KaplanLeadTime[]? StochasticLeadTimes { get; init; }
 
@@ -127,9 +132,11 @@ public sealed record ChainConfig
     public ulong LeadTimeSeed { get; init; }
 
     /// <summary>
-    /// Cover rule at R &gt; 1 (<see cref="CoverRules"/>). Default <see cref="CoverRule.Integer"/>: unchanged behaviour. The other
-    /// options compute c from the lag pmf (Kaplan mode) or a point mass at the integer L (deterministic arrivals) and allow a
-    /// non-integer planning L at R &gt; 1. Ignored at R = 1.
+    /// Cover rule at R &gt; 1 (<see cref="CoverRules"/>). Default null: <see cref="CoverRule.Integer"/> when every planning L is
+    /// an integer, <see cref="CoverRule.CycleAverage"/> (B) for the whole chain when one is non-integer
+    /// (Kaplan mean, e.g. E[L] = 6.4). The options A, B, C compute c from the lag pmf (Kaplan mode) or a point mass at the
+    /// integer L (deterministic arrivals) and allow a non-integer planning L at R &gt; 1; Integer set explicitly does not.
+    /// Ignored at R = 1.
     /// </summary>
-    public CoverRule Cover { get; init; } = CoverRule.Integer;
+    public CoverRule? Cover { get; init; }
 }

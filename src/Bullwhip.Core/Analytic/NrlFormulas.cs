@@ -17,12 +17,12 @@ public static class NrlFormulas
     /// has Var = σ²(L + L²/p) (future and past demand disjoint). So A² = (L + L²/p)/(1 + 1/p); L = 2, p = 8: A = 1.49071.
     /// √(L + L²/p) is σ_eL/σ (demand σ), which is A only if σ_e = σ (known mean). The NRL paper forecasts by exponential
     /// smoothing, where Var(μ̂) = α/(2−α)·σ² replaces σ²/p in both variances. Real L (Kaplan mean at R = 1): the same form.
-    /// The value equals <see cref="ChenFormulas.SigmaConstantIid"/>: both are σ_eL/σ_e for this model.
+    /// The value equals Chen's C (<see cref="ChenFormulas.SigmaConstantIid"/>): both are σ_eL/σ_e for this model, so this
+    /// delegates to it. Kept under its own name because the NRL constant A and Chen's C are cited separately.
     /// </summary>
     public static double ErrorRatioIid(double leadTime, int window)
     {
-        double lp = leadTime;
-        return Math.Sqrt((lp + lp * lp / window) / (1.0 + 1.0 / window));
+        return ChenFormulas.SigmaConstantIid(leadTime, window);
     }
 
     /// <summary>K_L = c·A (p. 273) with A from <see cref="ErrorRatioIid"/>; L = 2, p = 8: 1.86833.</summary>

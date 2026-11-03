@@ -56,10 +56,10 @@ public sealed class StageForecast
     }
 
     /// <summary>
-    /// Per-period mean demand estimate: window sum / real periods in the window. Closed buckets only; the open bucket is
-    /// excluded (as before). Without Prefill the first bucket holds phase + 1 &lt; R periods, so dividing by R would bias the
+    /// Per-period mean demand estimate: window sum / real periods in the window, over the closed buckets only (the open
+    /// bucket is excluded). Without Prefill the first bucket holds phase + 1 &lt; R periods, so dividing by R would bias the
     /// mean low; the period counts remove that. Prefilled and R = 1 cases: every bucket has exactly R periods, so the
-    /// denominator equals count * R as before.
+    /// denominator is count · R.
     /// </summary>
     public double Mean => _windowPeriods == 0 ? 0.0 : _sum / _windowPeriods;
 

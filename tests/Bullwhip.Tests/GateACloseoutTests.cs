@@ -158,6 +158,49 @@ public class GateACloseoutTests
         Assert.True(Math.Abs(lhs - rhs) <= 1e-9 * Math.Max(1, res.ArrivedTotal.Sum()));
     }
 
+    // One V7b lag over all replications on the same demand: fixed L (a), Kaplan lags (b), and Kaplan lags with a perfect
+    // supplier (c). Returns BR at stages 1 and 2 of (a) and (b), the retailer pipeline of (c), the largest order and on-hand
+    // differences between (a) and (b) after warm-up, and the replication means of the retailer backlog of (a) and (b) and
+    // of the retailer pipeline of (b).
+    private static (double[][] BrFixed, double[][] BrStoch, double[] Pipe, double MaxOrderDiff, double MaxOnHandDiff,
+        double BlFixed, double BlStoch, double PipeNormal) SampleFixedVersusKaplanRuns(KaplanLeadTime lt)
+    {
+        var brFixed = new[] { new double[Reps], new double[Reps] };
+        var brStoch = new[] { new double[Reps], new double[Reps] };
+        var pipe = new double[Reps];
+        double maxOrderDiff = 0, maxOnHandDiff = 0, blFixed = 0, blStoch = 0, pipeNormal = 0;
+        for (int rep = 0; rep < Reps; rep++)
+        {
+            var d = GateA.Demand(rep, Warm + Periods, 100, 0, Sigma);
+            var a = SerialChain.Run(Four(), d);
+            var stoch = Four(lt) with { LeadTimeSeed = GateA.LeadTimeSeed(rep) };
+            var b = SerialChain.Run(stoch, d);
+            var c = SerialChain.Run(stoch with { PerfectSupplier = true }, d);
+            AssertConservation(b);
+            AssertConservation(c);
+            pipeNormal += b.MeanPipeline[0] / Reps;
+            for (int k = 0; k < 2; k++)
+            {
+                brFixed[k][rep] = a.Bullwhip(k, Var);
+                brStoch[k][rep] = b.Bullwhip(k, Var);
+            }
+
+            pipe[rep] = c.MeanPipeline[0];
+            blFixed += a.MeanBacklog[0] / Reps;
+            blStoch += b.MeanBacklog[0] / Reps;
+            for (int k = 0; k < 4; k++)
+            {
+                for (int t = Warm; t < d.Length; t++)
+                {
+                    maxOrderDiff = Math.Max(maxOrderDiff, Math.Abs(a.Orders[k][t] - b.Orders[k][t]));
+                    maxOnHandDiff = Math.Max(maxOnHandDiff, Math.Abs(a.OnHandPeriod[k][t] - b.OnHandPeriod[k][t]));
+                }
+            }
+        }
+
+        return (brFixed, brStoch, pipe, maxOrderDiff, maxOnHandDiff, blFixed, blStoch, pipeNormal);
+    }
+
     [Fact]
     public void V7b_BullwhipInvariantUnderKaplanLeadTimes()
     {
@@ -173,39 +216,7 @@ public class GateACloseoutTests
         foreach (var (name, target) in new[] { ("A Var(L)=0.5", LagA), ("B Var(L)=1.0", LagB) })
         {
             var lt = new KaplanLeadTime(target);
-            var brFixed = new[] { new double[Reps], new double[Reps] };
-            var brStoch = new[] { new double[Reps], new double[Reps] };
-            var pipe = new double[Reps];
-            double maxOrderDiff = 0, maxOnHandDiff = 0, blFixed = 0, blStoch = 0, pipeNormal = 0;
-            for (int rep = 0; rep < Reps; rep++)
-            {
-                var d = GateA.Demand(rep, Warm + Periods, 100, 0, Sigma);
-                var a = SerialChain.Run(Four(), d);
-                var stoch = Four(lt) with { LeadTimeSeed = GateA.LeadTimeSeed(rep) };
-                var b = SerialChain.Run(stoch, d);
-                var c = SerialChain.Run(stoch with { PerfectSupplier = true }, d);
-                AssertConservation(b);
-                AssertConservation(c);
-                pipeNormal += b.MeanPipeline[0] / Reps;
-                for (int k = 0; k < 2; k++)
-                {
-                    brFixed[k][rep] = a.Bullwhip(k, Var);
-                    brStoch[k][rep] = b.Bullwhip(k, Var);
-                }
-
-                pipe[rep] = c.MeanPipeline[0];
-                blFixed += a.MeanBacklog[0] / Reps;
-                blStoch += b.MeanBacklog[0] / Reps;
-                for (int k = 0; k < 4; k++)
-                {
-                    for (int t = Warm; t < d.Length; t++)
-                    {
-                        maxOrderDiff = Math.Max(maxOrderDiff, Math.Abs(a.Orders[k][t] - b.Orders[k][t]));
-                        maxOnHandDiff = Math.Max(maxOnHandDiff, Math.Abs(a.OnHandPeriod[k][t] - b.OnHandPeriod[k][t]));
-                    }
-                }
-            }
-
+            var (brFixed, brStoch, pipe, maxOrderDiff, maxOnHandDiff, blFixed, blStoch, pipeNormal) = SampleFixedVersusKaplanRuns(lt);
             for (int k = 0; k < 2; k++)
             {
                 ok &= Check($"V7b {name} stage {k + 1} BR vs exact", refs[k], brStoch[k], z);
@@ -223,25 +234,14 @@ public class GateACloseoutTests
         Assert.True(ok);
     }
 
-    [Fact]
-    public void V4b_ChenSigmaVersusRealisedErrorSigma()
+    // V4b replications, the same demand for the z = 0 run, the realised-error run (ours) and the Chen Eq. 3 run. Per
+    // replication: BR of each run, mean σ̂ of ours and Chen, Chen's one-period error RMS, the cross term of ours and Chen,
+    // BR ours − Chen, and the excess BR(z = 1) − BR(z = 0) of ours and Chen.
+    private static (double[] Br0, double[] BrO, double[] BrC, double[] SigO, double[] SigC, double[] Rms1, double[] CrossO,
+        double[] CrossC, double[] Diff, double[] ExO, double[] ExC) SampleChenVersusRealisedError(
+        ChainConfig zero, ChainConfig ours, ChainConfig chen, double zSafety)
     {
-        // V4 parameters: one stage, L = 2, p = 8, z = 1, R = 1, iid, CRN (the same demand for all three runs).
-        // Chen p. 438: Var(q) = bound·Var(D) + 2z(1 + 2L/p)·Cov(D, σ̂) + z²·Var(σ̂_t − σ̂_{t−1}), Cov = 0 by Lemma 2.1 for
-        // Eq. (3). The cross term is the sample identity cross = BR(z) − BR(0) − z²·Var̂(Δσ̂)/σ², Δσ̂ = (q_z − q_0)/z.
-        // Two-sided (Bonferroni over 5): mean σ̂ of each estimator against its exact Jensen value b·σ_e (C makes
-        // E[σ̂²] = σ_e² for Chen too), the one-period error RMS against σ√(1 + 1/p), and the cross term of each against 0.
-        const double zSafety = 1.0;
-        var zero = new ChainConfig { LeadTimes = new double[] { 2 }, Window = 8, Z = new[] { 0.0 }, InitialMean = 100, Warmup = Warm };
-        var ours = zero with { Z = new[] { zSafety } };
-        var chen = ours with { Safety = SafetySource.ChenOnePeriodError };
-        double bound = ChenFormulas.SingleStageBullwhipRatio(2, 8, 0.0);
-        double sigmaE = Sigma * Math.Sqrt(2 + 4.0 / 8);
-        double sigma1 = Sigma * Math.Sqrt(1 + 1.0 / 8);
-        double bOurs = GateA.RmsMeanFactor(2, 8, 1, 8);
-        double bChen = GateA.RmsMeanFactor(1, 8, 1, 8);
         int to = Warm + Periods;
-
         var br0 = new double[Reps];
         var brO = new double[Reps];
         var brC = new double[Reps];
@@ -279,6 +279,28 @@ public class GateACloseoutTests
             exC[rep] = brC[rep] - br0[rep];
         }
 
+        return (br0, brO, brC, sigO, sigC, rms1, crossO, crossC, diff, exO, exC);
+    }
+
+    [Fact]
+    public void V4b_ChenSigmaVersusRealisedErrorSigma()
+    {
+        // V4 parameters: one stage, L = 2, p = 8, z = 1, R = 1, iid, CRN (the same demand for all three runs).
+        // Chen p. 438: Var(q) = bound·Var(D) + 2z(1 + 2L/p)·Cov(D, σ̂) + z²·Var(σ̂_t − σ̂_{t−1}), Cov = 0 by Lemma 2.1 for
+        // Eq. (3). The cross term is the sample identity cross = BR(z) − BR(0) − z²·Var̂(Δσ̂)/σ², Δσ̂ = (q_z − q_0)/z.
+        // Two-sided (Bonferroni over 5): mean σ̂ of each estimator against its exact Jensen value b·σ_e (C makes
+        // E[σ̂²] = σ_e² for Chen too), the one-period error RMS against σ√(1 + 1/p), and the cross term of each against 0.
+        const double zSafety = 1.0;
+        var zero = new ChainConfig { LeadTimes = new double[] { 2 }, Window = 8, Z = new[] { 0.0 }, InitialMean = 100, Warmup = Warm };
+        var ours = zero with { Z = new[] { zSafety } };
+        var chen = ours with { Safety = SafetySource.ChenOnePeriodError };
+        double bound = ChenFormulas.SingleStageBullwhipRatio(2, 8, 0.0);
+        double sigmaE = Sigma * Math.Sqrt(2 + 4.0 / 8);
+        double sigma1 = Sigma * Math.Sqrt(1 + 1.0 / 8);
+        double bOurs = GateA.RmsMeanFactor(2, 8, 1, 8);
+        double bChen = GateA.RmsMeanFactor(1, 8, 1, 8);
+
+        var (br0, brO, brC, sigO, sigC, rms1, crossO, crossC, diff, exO, exC) = SampleChenVersusRealisedError(zero, ours, chen, zSafety);
         double z = GateA.BonferroniZ(5);
         bool ok = Check("V4b mean σ̂ realised-error (ours)", bOurs * sigmaE, sigO, z);
         ok &= Check("V4b mean σ̂ Chen Eq. 3", bChen * sigmaE, sigC, z);
@@ -348,6 +370,24 @@ public class GateACloseoutTests
     [Fact]
     public void V7d_RealMeanLeadTime_P16_MatchesChenEq5() => RealMeanLeadTimeCheck(16);
 
+    // V7d replications with the Kaplan lead-time stream of each replication: stage-1 BR and the retailer protection-error
+    // mean square (ProtectionErrorRms²) per replication; flow conservation is asserted in every run.
+    private static (double[] Br, double[] Ms) SampleBullwhipAndErrorMeanSquare(ChainConfig cfg)
+    {
+        int to = Warm + Periods;
+        var br = new double[Reps];
+        var ms = new double[Reps];
+        for (int rep = 0; rep < Reps; rep++)
+        {
+            var res = SerialChain.Run(cfg with { LeadTimeSeed = GateA.LeadTimeSeed(rep) }, GateA.Demand(rep, to, 100, 0, Sigma));
+            AssertConservation(res);
+            br[rep] = res.Bullwhip(0, Var);
+            ms[rep] = res.ProtectionErrorRms[0] * res.ProtectionErrorRms[0];
+        }
+
+        return (br, ms);
+    }
+
     private void RealMeanLeadTimeCheck(int p)
     {
         // R = 1, z = 0, iid N(100, 10²), four stages in normal mode, the base-case Kaplan lag (LagBase) at every stage, and
@@ -370,16 +410,7 @@ public class GateACloseoutTests
         Assert.True(Math.Abs(planningL - 6.4) < 1e-6);
 
         var cfg = Four(lt) with { LeadTimes = new[] { planningL, planningL, planningL, planningL }, Window = p };
-        int to = Warm + Periods;
-        var br = new double[Reps];
-        var ms = new double[Reps];
-        for (int rep = 0; rep < Reps; rep++)
-        {
-            var res = SerialChain.Run(cfg with { LeadTimeSeed = GateA.LeadTimeSeed(rep) }, GateA.Demand(rep, to, 100, 0, Sigma));
-            AssertConservation(res);
-            br[rep] = res.Bullwhip(0, Var);
-            ms[rep] = res.ProtectionErrorRms[0] * res.ProtectionErrorRms[0];
-        }
+        var (br, ms) = SampleBullwhipAndErrorMeanSquare(cfg);
 
         double z = GateA.BonferroniZ(2);
         double chen = ChenFormulas.SingleStageBullwhipRatio(6.4, p, 0.0);

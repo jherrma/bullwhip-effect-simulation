@@ -23,7 +23,6 @@ public static class ChenFormulas
     /// </summary>
     public static double SigmaConstantIid(double leadTime, int window)
     {
-        double lp = leadTime;
-        return Math.Sqrt((lp + lp * lp / window) / (1.0 + 1.0 / window));
+        return Math.Sqrt((leadTime + leadTime * leadTime / window) / (1.0 + 1.0 / window));
     }
 }

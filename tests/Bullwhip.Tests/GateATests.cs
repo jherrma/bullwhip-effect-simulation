@@ -123,6 +123,25 @@ public class GateATests
             ("(c) Chen Eq. 3, C deriv", ours with { Safety = SafetySource.ChenOnePeriodError }, 0.0, GateA.RmsMeanFactor(1, window, 1, window)),
         };
 
+        var samples = SampleV4Rows(rows, zero, zS, window, reps, warm, to, demandVar);
+        double zB = GateA.BonferroniZ(14);
+        var (ok, xPred) = CheckV4Rows(rows, samples, zS, lead, window, bound, sigmaEL, zB);
+        ok &= CheckV4AdjustedDifferences(rows, samples.Br, samples.X, xPred, zB);
+
+        Assert.True(ok);
+    }
+
+    // Per-replication V4 statistics. Per row (first index): BR at z = 1, X = z²·Var̂(Δσ̂)/σ², mean σ̂, RMS of σ̂_t and the
+    // stockout rate; per replication: the L-period error RMS of row (a) and the one-period error RMS.
+    private sealed record V4Samples(
+        double[][] Br, double[][] X, double[][] Sig, double[][] RmsSig, double[][] Stockout, double[] RmsL, double[] Rms1);
+
+    // V4 replications, the same demand for every row and for the z = 0 run (Δσ̂ = (q_z − q_0)/z). Asserts that rows (b)
+    // and (c) see the same one-period errors as the direct computation.
+    private static V4Samples SampleV4Rows(
+        (string Name, ChainConfig Cfg, double Alpha, double MeanFactor)[] rows, ChainConfig zero, double zS, int window,
+        int reps, int warm, int to, double demandVar)
+    {
         int nr = rows.Length;
         double[][] New() => Enumerable.Range(0, nr).Select(_ => new double[reps]).ToArray();
         var br = New();
@@ -136,14 +155,7 @@ public class GateATests
         {
             var d = GateA.Demand(rep, to, GateA.Mu, 0, GateA.Sigma);
             var q0 = SerialChain.Run(zero, d).Orders[0];
-            double ss1 = 0;
-            for (int t = warm; t < to; t++)
-            {
-                double e1 = d[t] - Enumerable.Range(t - window, window).Sum(i => d[i]) / window;
-                ss1 += e1 * e1;
-            }
-
-            rms1[rep] = Math.Sqrt(ss1 / (to - warm));
+            rms1[rep] = OnePeriodErrorRms(d, window, warm, to);
             for (int i = 0; i < nr; i++)
             {
                 var res = SerialChain.Run(rows[i].Cfg, d);
@@ -152,18 +164,7 @@ public class GateATests
                 x[i][rep] = zS * zS * Descriptive.Variance(delta, warm, to) / demandVar;
                 sig[i][rep] = res.MeanSigmaHat[0];
                 stockout[i][rep] = 1 - res.ReadyRate;
-
-                // σ̂_t over the window = mean σ̂ + (C_t − mean C), C_t = Σ_{s ≤ t} Δσ̂_s, so mean σ̂² = (mean σ̂)² + Var(C).
-                double c = 0, sc = 0, scc = 0;
-                for (int t = warm; t < to; t++)
-                {
-                    c += delta[t];
-                    sc += c;
-                    scc += c * c;
-                }
-
-                double mc = sc / (to - warm);
-                rmsSig[i][rep] = Math.Sqrt(sig[i][rep] * sig[i][rep] + scc / (to - warm) - mc * mc);
+                rmsSig[i][rep] = SigmaHatRms(sig[i][rep], delta, warm, to);
                 if (i == 0)
                 {
                     rmsL[rep] = res.ProtectionErrorRms[0];
@@ -176,7 +177,47 @@ public class GateATests
             }
         }
 
-        double zB = GateA.BonferroniZ(14);
+        return new V4Samples(br, x, sig, rmsSig, stockout, rmsL, rms1);
+    }
+
+    // RMS over the window [warm, to) of the one-period errors e_t = D_t − MA_p(D_{t−p..t−1}), p = window.
+    private static double OnePeriodErrorRms(double[] d, int window, int warm, int to)
+    {
+        double ss1 = 0;
+        for (int t = warm; t < to; t++)
+        {
+            double e1 = d[t] - Enumerable.Range(t - window, window).Sum(i => d[i]) / window;
+            ss1 += e1 * e1;
+        }
+
+        return Math.Sqrt(ss1 / (to - warm));
+    }
+
+    // RMS of σ̂_t over the window [warm, to) from the mean σ̂ and the increments Δσ̂_t.
+    private static double SigmaHatRms(double meanSigmaHat, double[] delta, int warm, int to)
+    {
+        // σ̂_t over the window = mean σ̂ + (C_t − mean C), C_t = Σ_{s ≤ t} Δσ̂_s, so mean σ̂² = (mean σ̂)² + Var(C).
+        double c = 0, sc = 0, scc = 0;
+        for (int t = warm; t < to; t++)
+        {
+            c += delta[t];
+            sc += c;
+            scc += c * c;
+        }
+
+        double mc = sc / (to - warm);
+        return Math.Sqrt(meanSigmaHat * meanSigmaHat + scc / (to - warm) - mc * mc);
+    }
+
+    // Prints the V4 summary and one line per row, and checks every row: the 0.98·bound floor and BR ≥ bound − z_B·se;
+    // rows (b) also BR vs bound + X_pred, mean σ̂ vs A·σ_e and X vs X_pred; rows (a), (c) BR − X vs bound. Returns the
+    // combined pass flag and X_pred per row (0 for rows without a closed form).
+    private (bool Ok, double[] XPred) CheckV4Rows(
+        (string Name, ChainConfig Cfg, double Alpha, double MeanFactor)[] rows, V4Samples samples, double zS, int lead,
+        int window, double bound, double sigmaEL, double zB)
+    {
+        var (br, x, sig, rmsSig, stockout, rmsL, rms1) = samples;
+        int nr = rows.Length;
         var (m1, se1) = GateA.MeanAndSe(rms1);
         var (mL, seL) = GateA.MeanAndSe(rmsL);
         _out.WriteLine($"V4 L=2 p=8 z=1: bound (MS Eq. 5) {bound:0.000000}, floor 0.98·bound {0.98 * bound:0.000000}, z_B(14)={zB:0.000}; A={NrlFormulas.ErrorRatioIid(lead, window):0.00000} K_L=c·A={NrlFormulas.KFactorIid(lead, window):0.00000} C={ChenFormulas.SigmaConstantIid(lead, window):0.00000}; A·σ_e = σ_eL = {sigmaEL:0.0000}");
@@ -216,6 +257,15 @@ public class GateATests
             }
         }
 
+        return (ok, xPred);
+    }
+
+    // Rows (a) − (b) for both (b) rows: prints the plain BR difference (not asserted) and checks the adjusted difference
+    // (BR_a − BR_b) − (X_a − X_b) against 0 within z_B·paired se. Returns the combined pass flag.
+    private bool CheckV4AdjustedDifferences(
+        (string Name, ChainConfig Cfg, double Alpha, double MeanFactor)[] rows, double[][] br, double[][] x, double[] xPred, double zB)
+    {
+        bool ok = true;
         for (int i = 1; i <= 2; i++)
         {
             var raw = br[0].Select((v, rep) => v - br[i][rep]).ToArray();
@@ -228,7 +278,7 @@ public class GateATests
             _out.WriteLine($"V4 (a) − {rows[i].Name.Trim()}: (BR_a − BR_b) − (X_a − X_b) = {mA:+0.000000;-0.000000} (paired se {seA:0.000000}) |·| ≤ {zB:0.00}·se {(diffOk ? "PASS" : "FAIL")}");
         }
 
-        Assert.True(ok);
+        return ok;
     }
 
     [Fact]
@@ -501,5 +551,20 @@ public class GateATests
         Eq("onhand1", new double[] { 0, 4, 0, 4, 0, 0 }, res.OnHandPeriod[1]);
         Eq("backlog0", new double[] { 4, 8, 4, 8, 0, 0 }, res.BacklogPeriod[0]);
         Eq("backlog1", new double[] { 8, 0, 8, 0, 0, 0 }, res.BacklogPeriod[1]);
+    }
+
+    [Fact]
+    public void Run_InvalidConfig_ThrowsArgumentException()
+    {
+        // A lead time below 1 period (L = 0 would deliver nothing, L < 0 would arrive before dispatch) and a per-stage
+        // array shorter than the chain are rejected up front.
+        var cfg = new ChainConfig { LeadTimes = new double[] { 2, 2 }, Window = 8 };
+        var d = Enumerable.Repeat(100.0, 50).ToArray();
+        Assert.Throws<ArgumentException>(() => SerialChain.Run(cfg with { LeadTimes = new double[] { 0, 2 } }, d));
+        Assert.Throws<ArgumentException>(() => SerialChain.Run(cfg with { LeadTimes = new double[] { 2, -1 } }, d));
+        Assert.Throws<ArgumentException>(() => SerialChain.Run(cfg with { Phases = new[] { 0 } }, d));
+        Assert.Throws<ArgumentException>(() => SerialChain.Run(cfg with { Z = new[] { 1.0 } }, d));
+        Assert.Throws<ArgumentException>(() => SerialChain.Run(cfg with { Holding = new[] { 1.0 } }, d));
+        Assert.Throws<ArgumentException>(() => SerialChain.Run(cfg with { Value = new[] { 1.0 } }, d));
     }
 }
