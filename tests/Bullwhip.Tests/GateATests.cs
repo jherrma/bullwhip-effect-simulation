@@ -75,15 +75,160 @@ public class GateATests
         CheckStages("V3", refs, mean, se);
     }
 
-    [Fact]
-    public void V4_SafetyStockOneSided()
+    private bool Check(string name, double reference, double[] values, double z)
     {
-        // Applies to our realised-error σ̂ (SafetySource.EstimatedError, the default), not to Chen's Eq. (3) estimator.
-        // The bound holds for both: the cross term of Chen p. 438 is zero for each (V4b, GateACloseoutTests).
-        var cfg = new ChainConfig { LeadTimes = new double[] { 2 }, Window = 8, Z = new[] { 1.0 }, InitialMean = 100 };
-        var (mean, se) = GateA.BullwhipPerStage(cfg, 10, 0, 100, 2000, 200);
-        _out.WriteLine($"V4 (estimator EstimatedError): sim={mean[0]:0.0000} se={se[0]:0.0000} floor={0.98 * 1.625:0.0000}");
-        Assert.True(mean[0] >= 0.98 * 1.625);
+        var (mean, se) = GateA.MeanAndSe(values);
+        bool ok = GateA.Passes(reference, mean, se, z);
+        _out.WriteLine($"{name}: sim={mean:0.000000} ref={reference:0.000000} rel={mean / reference - 1:+0.000%;-0.000%} se={se:0.000000} tol=2% & |sim−ref| ≤ {z:0.00}·se {(ok ? "PASS" : "FAIL")}");
+        return ok;
+    }
+
+    [Fact]
+    public void V4_SafetyStockBoundThreeEstimators()
+    {
+        // One stage, L = 2, p = 8, R = 1, z = 1, iid N(100, 10²), 100 reps × 2000 periods after 200 warm-up, CRN: every row
+        // and a z = 0 run use the same demand. Statistic: BR at z = 1 (as in the one-sided V4 before). Rows:
+        // (a) our realised-error σ̂ (EstimatedError, the default): RMS of the last p L-period errors;
+        // (b) Chen, Ryan & Simchi-Levi (2000), NRL p. 273, Eq. (5): σ̂ = K_L·Δ̂, K_L = c·A, c = √(π/2) (paper), A = σ_eL/σ_e
+        //     our derivation (NrlFormulas), at α_s = 2/(p + 1) (Δ̂ has the variance of a p-sample mean for iid input:
+        //     α/(2 − α) = 1/p) and at α_s = 0.05 (sensitivity);
+        // (c) Chen et al. (2000), MS Eq. (3), p. 437, with the derived C (DECISIONS C13): the earlier comparison.
+        // Decomposition (MS p. 438; NRL Eq. 7, p. 273): Var(q_z) = Var(q_0) + z²·Var(Δσ̂) + 2z·Cov(q_0, Δσ̂), Δσ̂_t = σ̂_t −
+        // σ̂_{t−1}; Cov = 0 by the symmetry D − μ → μ − D, which flips q_0 − μ and leaves σ̂ unchanged (MS Lemma 2.1 for Eq. 3,
+        // NRL Lemma 1 for an ES forecast; the same argument covers (a) and (b) on the MA); E[Var(q_0)] = bound·σ² (MS Eq. 5,
+        // tight at z = 0).
+        // X = z²·Var̂(Δσ̂)/σ² is measured per replication from Δσ̂ = (q_z − q_0)/z (CRN, no clipping: q_t = S_t − S_{t−1} + D_t
+        // and μ̂ does not depend on z). For (b) X also has a closed form (GateA.EwmaMadVariance), so BR_b has the two-sided
+        // reference bound + X_pred. BR_a − BR_b = X_a − X_b + (cross_a − cross_b): the derived tolerance is
+        // |(BR_a − BR_b) − (X_a − X_b)| ≤ z_B·paired se. A plain |BR_a − BR_b| ≤ z_B·se has the wrong null (X_a ≠ X_b; X_b
+        // grows like 2α_s²/(2 − α_s)), so it is printed, not asserted.
+        // Bonferroni over m = 14: BR ≥ bound − z_B·se per row (4); (a), (c) BR − X vs bound (2); per (b) row BR vs bound +
+        // X_pred, mean σ̂ vs A·σ_e (Δ̂ is linear in |e|: no Jensen bias in the mean), X vs X_pred (6); (a) − (b) (2). The
+        // one-sided floor BR ≥ 0.98·bound of the plan stays for every row.
+        const double zS = 1.0;
+        const int lead = 2, window = 8;
+        int reps = GateA.Replications, warm = GateA.Warmup, to = GateA.Warmup + GateA.Periods;
+        double demandVar = GateA.Sigma * GateA.Sigma;
+        double bound = ChenFormulas.SingleStageBullwhipRatio(lead, window, 0.0);
+        double sigmaEL = GateA.Sigma * Math.Sqrt(lead + (double)lead * lead / window); // A·σ_e = σ_eL
+        double alphaP = 2.0 / (window + 1);
+        var zero = new ChainConfig { LeadTimes = new double[] { lead }, Window = window, Z = new[] { 0.0 }, InitialMean = 100, Warmup = warm };
+        var ours = zero with { Z = new[] { zS } };
+        var ewma = ours with { Safety = SafetySource.EwmaAbsError };
+        var rows = new (string Name, ChainConfig Cfg, double Alpha, double MeanFactor)[]
+        {
+            ("(a) realised-error RMS ", ours, 0.0, GateA.RmsMeanFactor(lead, window, 1, window)),
+            ("(b) NRL EWMA α_s=2/9   ", ewma with { AbsErrorSmoothing = alphaP }, alphaP, 1.0),
+            ("(b) NRL EWMA α_s=0.05  ", ewma with { AbsErrorSmoothing = 0.05 }, 0.05, 1.0),
+            ("(c) Chen Eq. 3, C deriv", ours with { Safety = SafetySource.ChenOnePeriodError }, 0.0, GateA.RmsMeanFactor(1, window, 1, window)),
+        };
+
+        int nr = rows.Length;
+        double[][] New() => Enumerable.Range(0, nr).Select(_ => new double[reps]).ToArray();
+        var br = New();
+        var x = New();
+        var sig = New();
+        var rmsSig = New();
+        var stockout = New();
+        var rmsL = new double[reps];
+        var rms1 = new double[reps];
+        for (int rep = 0; rep < reps; rep++)
+        {
+            var d = GateA.Demand(rep, to, GateA.Mu, 0, GateA.Sigma);
+            var q0 = SerialChain.Run(zero, d).Orders[0];
+            double ss1 = 0;
+            for (int t = warm; t < to; t++)
+            {
+                double e1 = d[t] - Enumerable.Range(t - window, window).Sum(i => d[i]) / window;
+                ss1 += e1 * e1;
+            }
+
+            rms1[rep] = Math.Sqrt(ss1 / (to - warm));
+            for (int i = 0; i < nr; i++)
+            {
+                var res = SerialChain.Run(rows[i].Cfg, d);
+                var delta = res.Orders[0].Select((v, t) => (v - q0[t]) / zS).ToArray();
+                br[i][rep] = res.Bullwhip(0, demandVar);
+                x[i][rep] = zS * zS * Descriptive.Variance(delta, warm, to) / demandVar;
+                sig[i][rep] = res.MeanSigmaHat[0];
+                stockout[i][rep] = 1 - res.ReadyRate;
+
+                // σ̂_t over the window = mean σ̂ + (C_t − mean C), C_t = Σ_{s ≤ t} Δσ̂_s, so mean σ̂² = (mean σ̂)² + Var(C).
+                double c = 0, sc = 0, scc = 0;
+                for (int t = warm; t < to; t++)
+                {
+                    c += delta[t];
+                    sc += c;
+                    scc += c * c;
+                }
+
+                double mc = sc / (to - warm);
+                rmsSig[i][rep] = Math.Sqrt(sig[i][rep] * sig[i][rep] + scc / (to - warm) - mc * mc);
+                if (i == 0)
+                {
+                    rmsL[rep] = res.ProtectionErrorRms[0];
+                }
+                else
+                {
+                    // (b), (c): the simulator's one-period errors are e_t = D_t − MA_p(D_{t−p..t−1}), the same for every row.
+                    Assert.True(Math.Abs(res.ProtectionErrorRms[0] / rms1[rep] - 1) < 1e-9, $"{rows[i].Name}: one-period errors differ");
+                }
+            }
+        }
+
+        double zB = GateA.BonferroniZ(14);
+        var (m1, se1) = GateA.MeanAndSe(rms1);
+        var (mL, seL) = GateA.MeanAndSe(rmsL);
+        _out.WriteLine($"V4 L=2 p=8 z=1: bound (MS Eq. 5) {bound:0.000000}, floor 0.98·bound {0.98 * bound:0.000000}, z_B(14)={zB:0.000}; A={NrlFormulas.ErrorRatioIid(lead, window):0.00000} K_L=c·A={NrlFormulas.KFactorIid(lead, window):0.00000} C={ChenFormulas.SigmaConstantIid(lead, window):0.00000}; A·σ_e = σ_eL = {sigmaEL:0.0000}");
+        _out.WriteLine($"V4 one-period error RMS (every row, CRN) {m1:0.0000} (se {se1:0.0000}) vs σ√(1+1/p) = {GateA.Sigma * Math.Sqrt(1 + 1.0 / window):0.0000}; row (a) L-period error RMS {mL:0.0000} (se {seL:0.0000}) vs σ_eL {sigmaEL:0.0000}");
+        _out.WriteLine("V4 row                     mean σ̂ (se)         σ̂/σ_eL  exp      RMS σ̂/σ_eL exp     1-per RMS  BR z=1 (se)          bound     X (se)               BR − X (se)          stockout (1−Φ(z)=0.1587)");
+        bool ok = true;
+        var xPred = new double[nr];
+        for (int i = 0; i < nr; i++)
+        {
+            var (mB, seB) = GateA.MeanAndSe(br[i]);
+            var (mX, seX) = GateA.MeanAndSe(x[i]);
+            var (mS, seS) = GateA.MeanAndSe(sig[i]);
+            var bx = br[i].Select((v, rep) => v - x[i][rep]).ToArray();
+            var (mBx, seBx) = GateA.MeanAndSe(bx);
+            double expRms = 1.0;
+            if (rows[i].Alpha > 0)
+            {
+                var (level, step) = GateA.EwmaMadVariance(window, rows[i].Alpha);
+                xPred[i] = zS * zS * Math.PI / 2 * (lead + (double)lead * lead / window) * step;
+                expRms = Math.Sqrt(1 + Math.PI / 2 * level);
+            }
+
+            _out.WriteLine($"V4 {rows[i].Name}: {mS:0.0000} ({seS:0.0000})  {mS / sigmaEL:0.00000} {rows[i].MeanFactor:0.00000}  {rmsSig[i].Average() / sigmaEL:0.00000}  {expRms:0.00000}  {m1:0.0000}   {mB:0.000000} ({seB:0.000000})  {bound:0.000000}  {mX:0.000000} ({seX:0.000000})  {mBx:0.000000} ({seBx:0.000000})  {stockout[i].Average():0.0000}");
+            bool floor = mB >= 0.98 * bound;
+            bool holds = mB >= bound - zB * seB;
+            _out.WriteLine($"V4 {rows[i].Name}: floor BR ≥ 0.98·bound {(floor ? "PASS" : "FAIL")}; bound holds BR ≥ bound − {zB:0.00}·se ({bound - zB * seB:0.000000}) {(holds ? "PASS" : "FAIL")}");
+            ok &= floor && holds;
+            if (rows[i].Alpha > 0)
+            {
+                ok &= Check($"V4 {rows[i].Name}: BR vs bound + X_pred (X_pred {xPred[i]:0.000000})", bound + xPred[i], br[i], zB);
+                ok &= Check($"V4 {rows[i].Name}: mean σ̂ vs A·σ_e", sigmaEL, sig[i], zB);
+                ok &= Check($"V4 {rows[i].Name}: X vs X_pred", xPred[i], x[i], zB);
+            }
+            else
+            {
+                ok &= Check($"V4 {rows[i].Name}: BR − X vs bound", bound, bx, zB);
+            }
+        }
+
+        for (int i = 1; i <= 2; i++)
+        {
+            var raw = br[0].Select((v, rep) => v - br[i][rep]).ToArray();
+            var adj = raw.Select((v, rep) => v - (x[0][rep] - x[i][rep])).ToArray();
+            var (mR, seR) = GateA.MeanAndSe(raw);
+            var (mA, seA) = GateA.MeanAndSe(adj);
+            bool diffOk = Math.Abs(mA) <= zB * seA;
+            ok &= diffOk;
+            _out.WriteLine($"V4 (a) − {rows[i].Name.Trim()}: BR_a − BR_b = {mR:+0.000000;-0.000000} (paired se {seR:0.000000}, {mR / seR:+0.0;-0.0} se; predicted X_a − X_pred = {x[0].Average() - xPred[i]:+0.000000;-0.000000}); plain |Δ| ≤ {zB:0.00}·se {(Math.Abs(mR) <= zB * seR ? "holds" : "does not hold")} (not asserted)");
+            _out.WriteLine($"V4 (a) − {rows[i].Name.Trim()}: (BR_a − BR_b) − (X_a − X_b) = {mA:+0.000000;-0.000000} (paired se {seA:0.000000}) |·| ≤ {zB:0.00}·se {(diffOk ? "PASS" : "FAIL")}");
+        }
+
+        Assert.True(ok);
     }
 
     [Fact]

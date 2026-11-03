@@ -14,6 +14,14 @@ public enum SafetySource
     /// C is <see cref="Analytic.ChenFormulas.SigmaConstantIid"/> (our derivation). Used for the V4 comparison.
     /// </summary>
     ChenOnePeriodError,
+
+    /// <summary>
+    /// Chen, Ryan &amp; Simchi-Levi (2000), NRL 47(4), p. 273, Eq. (5): σ̂ = K_L·Δ̂, Δ̂ the exponentially smoothed |e_t| of the
+    /// one-period errors e_t = D_t − μ̂_{t−1} of the stage's own MA forecast (<see cref="Forecast.AbsErrorEwma"/>, smoothing
+    /// constant <see cref="ChainConfig.AbsErrorSmoothing"/>), K_L = c·A, c = √(π/2) (paper), A = σ_eL/σ_e our derivation
+    /// for iid demand (<see cref="Analytic.NrlFormulas"/>). R = 1 only. Used for the V4 comparison.
+    /// </summary>
+    EwmaAbsError,
 }
 
 /// <summary>
@@ -73,6 +81,12 @@ public sealed record ChainConfig
     public bool AllowNegativeOrders { get; init; } = true;
 
     public SafetySource Safety { get; init; } = SafetySource.EstimatedError;
+
+    /// <summary>
+    /// Smoothing constant α_s ∈ (0, 1] of Δ̂ for <see cref="SafetySource.EwmaAbsError"/> (required there, ignored otherwise).
+    /// α_s = 2/(p + 1) gives the level Δ̂ the variance of a p-sample mean for iid inputs (α/(2 − α) = 1/p, our choice for V4).
+    /// </summary>
+    public double AbsErrorSmoothing { get; init; }
 
     /// <summary>Per-period σ for <see cref="SafetySource.KnownSigma"/>.</summary>
     public double KnownSigma { get; init; }

@@ -33,6 +33,17 @@ public static class SerialChain
             throw new ArgumentException("Chen's one-period σ̂ (Eq. 3) is defined for R = 1 only.");
         }
 
+        bool ewma = cfg.Safety == SafetySource.EwmaAbsError;
+        if (ewma && r != 1)
+        {
+            throw new ArgumentException("The NRL EWMA σ̂ (Eq. 5) is defined for R = 1 only.");
+        }
+
+        if (ewma && !(cfg.AbsErrorSmoothing > 0.0 && cfg.AbsErrorSmoothing <= 1.0))
+        {
+            throw new ArgumentException("SafetySource.EwmaAbsError needs AbsErrorSmoothing α_s in (0, 1].");
+        }
+
         // Kaplan lead times (plan S10): the arrival period of every dispatch is fixed when it is dispatched, from one
         // uniform per stage and period drawn up front; Due(k, s) is t + L_k without them (unchanged path).
         KaplanLeadTime[]? kaplan = cfg.StochasticLeadTimes;
@@ -110,6 +121,7 @@ public static class SerialChain
         var pending = new double[n][];
         var fc = new StageForecast[n];
         var err = new ErrorWindow[n];
+        var mad = ewma ? new AbsErrorEwma[n] : null;
         for (int k = 0; k < n; k++)
         {
             arr[k] = new double[len];
@@ -123,6 +135,10 @@ public static class SerialChain
             // a phase-dependent lump count, and consecutive ones share Lp−1 periods and μ̂. p/R samples gave E[σ̂] =
             // 0.886·σ_e (R=4, L=2, p=8); p gives 0.964 (R = 1: 0.958), the Jensen bias in GateA.RmsMeanFactor.
             err[k] = new ErrorWindow(p);
+            if (mad != null)
+            {
+                mad[k] = new AbsErrorEwma(cfg.AbsErrorSmoothing);
+            }
         }
 
         // Periods of mean demand that S covers: Lp, or n·R for the lumpy incoming demand of an upstream stage at R > 1
@@ -335,6 +351,21 @@ public static class SerialChain
                         }
                     }
 
+                    // Chen, Ryan & Simchi-Levi (2000), NRL Eq. (5), p. 273: Δ̂ smooths |e| of the same one-period errors as
+                    // above (their Δ̂_{t+1} from e_t: their period t+1 starts with the model's order at the end of t), then
+                    // σ̂ = K_L·Δ̂ below. Its errors enter ProtectionErrorRms/Mean (one-period errors, as for Chen Eq. 3).
+                    if (mad != null && cfg.ConstantMean == null && t >= 1 && !double.IsNaN(pending[k][t - 1]))
+                    {
+                        double e1 = obs[k][t] - pending[k][t - 1];
+                        mad[k].Add(e1);
+                        if (t >= cfg.Warmup)
+                        {
+                            errSq[k] += e1 * e1;
+                            errSum[k] += e1;
+                            errCount[k]++;
+                        }
+                    }
+
                     double mu = cfg.ConstantMean ?? fc[k].Mean;
                     double safety = cfg.Safety == SafetySource.KnownSigma
                         ? cfg.KnownSigma * Math.Sqrt(lp)
@@ -342,6 +373,10 @@ public static class SerialChain
                     if (cfg.Safety == SafetySource.ChenOnePeriodError)
                     {
                         safety *= ChenFormulas.SigmaConstantIid(lp, p);
+                    }
+                    else if (mad != null && !cfg.ConstantMean.HasValue)
+                    {
+                        safety = NrlFormulas.KFactorIid(lp, p) * mad[k].Mad;
                     }
 
                     double target = cover[k] * mu + zs[k] * safety;

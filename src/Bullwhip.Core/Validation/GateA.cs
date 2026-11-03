@@ -161,6 +161,53 @@ public static class GateA
         return sum / (2.0 * Math.Sqrt(Math.PI));
     }
 
+    /// <summary>
+    /// Var(Δ̂_t) and Var(Δ̂_t − Δ̂_{t−1}) in units of σ_e² for the EWMA Δ̂ of |e| (<see cref="Forecast.AbsErrorEwma"/>,
+    /// constant α, stationary) of the one-period errors e_t = D_t − μ̂_{t−1} of an MA(p) forecast, iid normal demand, R = 1
+    /// (our derivation). The e_t are jointly normal, σ_e² = σ²(1 + 1/p), lag-h correlation ρ_h = −h/(p(p + 1)) for 1 ≤ h ≤ p
+    /// and 0 beyond (e_t holds D_t with weight 1, e_{t+h} holds it with −1/p, and both share p − h past periods with 1/p²).
+    /// For a normal pair Cov(|X|, |Y|) = (2/π)(√(1 − ρ²) + ρ·asin ρ − 1)·σ_e², Var|X| = (1 − 2/π)·σ_e². Δ̂_t = Σ_j αβʲ|e_{t−j}|
+    /// and Δ̂_t − Δ̂_{t−1} = Σ_j w_j |e_{t−j}|, w_0 = α, w_j = −α²β^{j−1} (β = 1 − α); both variances are Σ_i Σ_j w_i w_j γ(i − j).
+    /// For σ̂ = K_L·Δ̂ (K_L²σ_e² = (π/2)σ_eL²): z²·Var(σ̂_t − σ̂_{t−1})/σ² = z²(π/2)(L + L²/p)·Step, E[σ̂²]/σ_eL² = 1 + (π/2)·Level.
+    /// </summary>
+    public static (double Level, double Step) EwmaMadVariance(int p, double alpha)
+    {
+        double beta = 1.0 - alpha;
+        int m = (int)Math.Ceiling(80.0 / alpha);
+        double Gamma(int h)
+        {
+            if (h == 0)
+            {
+                return 1.0 - 2.0 / Math.PI;
+            }
+
+            h = Math.Abs(h);
+            double r = h <= p ? -(double)h / (p * (p + 1.0)) : 0.0;
+            return 2.0 / Math.PI * (Math.Sqrt(1.0 - r * r) + r * Math.Asin(r) - 1.0);
+        }
+
+        var level = new double[m];
+        var step = new double[m];
+        for (int j = 0; j < m; j++)
+        {
+            level[j] = alpha * Math.Pow(beta, j);
+            step[j] = j == 0 ? alpha : -alpha * alpha * Math.Pow(beta, j - 1);
+        }
+
+        double vl = 0.0, vs = 0.0;
+        for (int i = 0; i < m; i++)
+        {
+            for (int h = -Math.Min(p, i); h <= Math.Min(p, m - 1 - i); h++)
+            {
+                double g = Gamma(h);
+                vl += level[i] * level[i + h] * g;
+                vs += step[i] * step[i + h] * g;
+            }
+        }
+
+        return (vl, vs);
+    }
+
     private static double Binomial(int n, int k)
     {
         double c = 1.0;
