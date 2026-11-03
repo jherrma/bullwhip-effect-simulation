@@ -22,6 +22,18 @@ public static class GateA
         return Ar1Demand.Generate(length, mu, rho, sigma, rng);
     }
 
+    /// <summary>Stream id of the lead-time draws under the replication seed (the demand uses the replication seed itself).</summary>
+    public const ulong LeadTimeStream = 1;
+
+    /// <summary>
+    /// Lead-time seed of replication rep (plan §3: one demand stream and one lead-time stream per stage, all derived from
+    /// the fixed base seed); stage k then draws from SplitMix64.Derive(seed, k) (<see cref="ChainConfig.LeadTimeSeed"/>).
+    /// </summary>
+    public static ulong LeadTimeSeed(int rep)
+    {
+        return SplitMix64.Derive(SplitMix64.Derive(ChenSingleStageCheck.BaseSeed, (ulong)rep), LeadTimeStream);
+    }
+
     /// <summary>Per-stage mean and standard error (over replications) of Bullwhip(k, Var(D)).</summary>
     public static (double[] Mean, double[] Se) BullwhipPerStage(
         ChainConfig cfg, double sigma, double rho, int reps, int periods, int warmup)

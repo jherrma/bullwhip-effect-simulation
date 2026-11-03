@@ -7,6 +7,13 @@ public enum SafetySource
 
     /// <summary>Known per-period σ: S = Lp·μ̂ + z·σ·√Lp (used by V8 and V13).</summary>
     KnownSigma,
+
+    /// <summary>
+    /// Chen et al. (2000) Eq. (3), p. 437: σ̂ = C·√(Σ_{i=1..p} e²_{t−i} / p), e_t = D_t − D̂¹_t the one-period error of
+    /// the MA forecast. R = 1 only. The paper names C_{L,ρ} but gives no value (it refers to Ryan 1997, not in hand);
+    /// C is <see cref="Analytic.ChenFormulas.SigmaConstantIid"/> (our derivation). Used for the V4 comparison.
+    /// </summary>
+    ChenOnePeriodError,
 }
 
 /// <summary>
@@ -66,4 +73,15 @@ public sealed record ChainConfig
 
     /// <summary>Fixed cost K per order placed.</summary>
     public double OrderCost { get; init; }
+
+    /// <summary>
+    /// If set (one entry per stage): Kaplan (1970) no-crossing stochastic lead time of each stage's replenishment
+    /// (plan S10). Arrivals of shipments (or of the orders themselves for a perfect supplier and the top stage) follow
+    /// <see cref="KaplanLeadTime"/>. LeadTimes[k] stays the planning lead time and must equal E[L_k] (planning on the
+    /// known mean). Null (default): deterministic L_k, unchanged behaviour.
+    /// </summary>
+    public KaplanLeadTime[]? StochasticLeadTimes { get; init; }
+
+    /// <summary>Seed of the lead-time streams: stage k draws from SplitMix64.Derive(LeadTimeSeed, k).</summary>
+    public ulong LeadTimeSeed { get; init; }
 }

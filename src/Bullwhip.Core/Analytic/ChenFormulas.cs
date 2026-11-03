@@ -13,4 +13,16 @@ public static class ChenFormulas
         double b = 2.0 * leadTime * leadTime / ((double)window * window);
         return 1.0 + (a + b) * (1.0 - Math.Pow(rho, window));
     }
+
+    /// <summary>
+    /// Constant C of Eq. (3), p. 437, for iid demand. Not from the paper: Chen et al. name C_{L,ρ} and refer to Ryan
+    /// (1997) for it. Our choice makes E[σ̂²] equal to the Lp-period error variance, the target of our own realised-error
+    /// σ̂: the one-period error e_t = D_t − (1/p)·Σ_{i=1..p} D_{t−i} has Var = σ²(1 + 1/p), the Lp-period error
+    /// Var = σ²(Lp + Lp²/p), so C² = (Lp + Lp²/p)/(1 + 1/p). Lp = 2, p = 8: C = 1.4907.
+    /// </summary>
+    public static double SigmaConstantIid(int leadTime, int window)
+    {
+        double lp = leadTime;
+        return Math.Sqrt((lp + lp * lp / window) / (1.0 + 1.0 / window));
+    }
 }

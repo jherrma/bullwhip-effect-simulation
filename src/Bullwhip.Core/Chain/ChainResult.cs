@@ -41,7 +41,10 @@ public sealed class ChainResult
     /// <summary>Number of orders with positive quantity per stage (whole run).</summary>
     public required int[] OrderCount { get; init; }
 
-    /// <summary>RMS of the realised protection-period errors settled in the window (0 without an estimated σ̂).</summary>
+    /// <summary>
+    /// RMS of the realised protection-period errors settled in the window (0 without an estimated σ̂). With
+    /// <see cref="SafetySource.ChenOnePeriodError"/>: RMS of the one-period errors e_t = D_t − D̂¹_t.
+    /// </summary>
     public required double[] ProtectionErrorRms { get; init; }
 
     /// <summary>Mean σ̂ over the order times in the window (0 without an estimated σ̂); z·MeanSigmaHat is the mean safety term of S.</summary>

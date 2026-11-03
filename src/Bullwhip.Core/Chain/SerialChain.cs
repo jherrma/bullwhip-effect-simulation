@@ -1,5 +1,7 @@
 using System.Linq;
+using Bullwhip.Core.Analytic;
 using Bullwhip.Core.Forecast;
+using Bullwhip.Core.Rng;
 
 namespace Bullwhip.Core.Chain;
 
@@ -26,7 +28,42 @@ public static class SerialChain
             throw new ArgumentException("R must be ≥ 1 and divide the window p (plan R1).");
         }
 
-        int maxLead = cfg.LeadTimes.Max();
+        if (cfg.Safety == SafetySource.ChenOnePeriodError && r != 1)
+        {
+            throw new ArgumentException("Chen's one-period σ̂ (Eq. 3) is defined for R = 1 only.");
+        }
+
+        // Kaplan lead times (plan S10): the arrival period of every dispatch is fixed when it is dispatched, from one
+        // uniform per stage and period drawn up front; Due(k, s) is t + L_k without them (unchanged path).
+        KaplanLeadTime[]? kaplan = cfg.StochasticLeadTimes;
+        int[][]? due = null;
+        if (kaplan != null)
+        {
+            if (kaplan.Length != n)
+            {
+                throw new ArgumentException("StochasticLeadTimes needs one entry per stage.");
+            }
+
+            for (int k = 0; k < n; k++)
+            {
+                if (Math.Abs(kaplan[k].MeanLeadTime - cfg.LeadTimes[k]) > 1e-9)
+                {
+                    throw new ArgumentException($"Stage {k}: planning lead time {cfg.LeadTimes[k]} must equal E[L] = {kaplan[k].MeanLeadTime}.");
+                }
+            }
+
+            due = new int[n][];
+            for (int k = 0; k < n; k++)
+            {
+                due[k] = kaplan[k].DrawArrivals(new SplitMix64(SplitMix64.Derive(cfg.LeadTimeSeed, (ulong)k)), horizon - 1);
+            }
+        }
+
+        int Due(int k, int s) => due == null ? s + cfg.LeadTimes[k] : due[k][s + kaplan![k].MaxLag + 1];
+
+        int maxLead = kaplan == null
+            ? cfg.LeadTimes.Max()
+            : Enumerable.Range(0, n).Max(k => Math.Max(cfg.LeadTimes[k], kaplan[k].MaxLag + 1));
         int len = horizon + maxLead + 3;
         int[] phases = cfg.Phases ?? new int[n];
         double[] zs = cfg.Z ?? new double[n];
@@ -92,12 +129,31 @@ public static class SerialChain
             for (int k = 0; k < n; k++)
             {
                 fc[k].Prefill(mu0, Mod(phases[k], r));
-                for (int tau = 0; tau < cfg.LeadTimes[k]; tau++)
+                if (due == null)
                 {
-                    arr[k][tau] += mu0;
-                    sched[k] += mu0;
-                    schedInitial[k] += mu0;
-                    onOrder[k] += mu0;
+                    for (int tau = 0; tau < cfg.LeadTimes[k]; tau++)
+                    {
+                        arr[k][tau] += mu0;
+                        sched[k] += mu0;
+                        schedInitial[k] += mu0;
+                        onOrder[k] += mu0;
+                    }
+                }
+                else
+                {
+                    // Pre-history: μ dispatched in each period −m−1..−1; those due at t ≥ 0 are in the pipeline
+                    // (expected on-order E[L]·μ, as Lμ for fixed L). Earlier dispatches have arrived before t = 0.
+                    for (int s = -kaplan![k].MaxLag - 1; s < 0; s++)
+                    {
+                        int at = Due(k, s);
+                        if (at >= 0)
+                        {
+                            arr[k][at] += mu0;
+                            sched[k] += mu0;
+                            schedInitial[k] += mu0;
+                            onOrder[k] += mu0;
+                        }
+                    }
                 }
             }
         }
@@ -143,7 +199,7 @@ public static class SerialChain
                 shipped[k] += s;
                 if (k > 0 && !cfg.PerfectSupplier)
                 {
-                    arr[k - 1][t + cfg.LeadTimes[k - 1]] += s;
+                    arr[k - 1][Due(k - 1, t)] += s;
                     sched[k - 1] += s;
                     schedAdded[k - 1] += s;
                 }
@@ -191,10 +247,29 @@ public static class SerialChain
                         }
                     }
 
+                    // Chen et al. (2000) Eq. (3): e_t = D_t − D̂¹_t with D̂¹_t the MA of the p periods before t, i.e. μ̂ of
+                    // order time t − 1 (Chen's order at the start of t+1 is the model's order at the end of t).
+                    if (cfg.Safety == SafetySource.ChenOnePeriodError && cfg.ConstantMean == null
+                        && t >= 1 && !double.IsNaN(pending[k][t - 1]))
+                    {
+                        double e1 = obs[k][t] - pending[k][t - 1];
+                        err[k].Add(e1);
+                        if (t >= cfg.Warmup)
+                        {
+                            errSq[k] += e1 * e1;
+                            errCount[k]++;
+                        }
+                    }
+
                     double mu = cfg.ConstantMean ?? fc[k].Mean;
                     double safety = cfg.Safety == SafetySource.KnownSigma
                         ? cfg.KnownSigma * Math.Sqrt(lp)
                         : (cfg.ConstantMean.HasValue ? 0.0 : err[k].Sigma);
+                    if (cfg.Safety == SafetySource.ChenOnePeriodError)
+                    {
+                        safety *= ChenFormulas.SigmaConstantIid(lp, p);
+                    }
+
                     double target = cover[k] * mu + zs[k] * safety;
                     double ip = onHand[k] - backlog[k] + onOrder[k];
                     qk = target - ip;
@@ -203,7 +278,7 @@ public static class SerialChain
                         qk = 0.0;
                     }
 
-                    if (cfg.Safety == SafetySource.EstimatedError && cfg.ConstantMean == null)
+                    if (cfg.Safety != SafetySource.KnownSigma && cfg.ConstantMean == null)
                     {
                         pending[k][t] = mu;
                         if (t >= cfg.Warmup)
@@ -225,7 +300,7 @@ public static class SerialChain
                     onOrder[k] += qk;
                     if (cfg.PerfectSupplier || k == n - 1)
                     {
-                        arr[k][t + cfg.LeadTimes[k]] += qk;
+                        arr[k][Due(k, t)] += qk;
                         sched[k] += qk;
                         schedAdded[k] += qk;
                     }

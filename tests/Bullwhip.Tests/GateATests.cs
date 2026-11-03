@@ -1,3 +1,4 @@
+using Bullwhip.Core.Analytic;
 using Bullwhip.Core.Chain;
 using Bullwhip.Core.Demand;
 using Bullwhip.Core.Stats;
@@ -49,6 +50,14 @@ public class GateATests
         var refs = Enumerable.Range(1, 4).Select(k => GateA.FilterReference(k, 2, 8)).ToArray();
         CheckStages("V2", refs, mean, se);
         double z = GateA.BonferroniZ(4);
+
+        // Stage 1 two-sided against Chen Eq. (5) (ChenFormulas, independent of FilterReference): |BR/ref − 1| ≤ 2 % and
+        // ref inside the Bonferroni CI. Same point as stage 1 above, so m stays 4.
+        double chen1 = ChenFormulas.SingleStageBullwhipRatio(2, 8, 0.0);
+        bool ok1 = GateA.Passes(chen1, mean[0], se[0], z);
+        _out.WriteLine($"V2 stage 1 vs Chen Eq. (5): sim={mean[0]:0.000000} ref={chen1:0.000000} rel={mean[0] / chen1 - 1:+0.000%;-0.000%} se={se[0]:0.000000} tol=2% & {z:0.00}·se {(ok1 ? "PASS" : "FAIL")}");
+        Assert.True(ok1, "V2 stage 1 outside the two-sided band around Chen Eq. (5)");
+
         for (int k = 1; k <= 4; k++)
         {
             double bound = GateA.ChenProductBound(k, 2, 8);
@@ -69,9 +78,11 @@ public class GateATests
     [Fact]
     public void V4_SafetyStockOneSided()
     {
+        // Applies to our realised-error σ̂ (SafetySource.EstimatedError, the default), not to Chen's Eq. (3) estimator.
+        // The bound holds for both: the cross term of Chen p. 438 is zero for each (V4b, GateACloseoutTests).
         var cfg = new ChainConfig { LeadTimes = new[] { 2 }, Window = 8, Z = new[] { 1.0 }, InitialMean = 100 };
         var (mean, se) = GateA.BullwhipPerStage(cfg, 10, 0, 100, 2000, 200);
-        _out.WriteLine($"V4: sim={mean[0]:0.0000} se={se[0]:0.0000} floor={0.98 * 1.625:0.0000}");
+        _out.WriteLine($"V4 (estimator EstimatedError): sim={mean[0]:0.0000} se={se[0]:0.0000} floor={0.98 * 1.625:0.0000}");
         Assert.True(mean[0] >= 0.98 * 1.625);
     }
 
