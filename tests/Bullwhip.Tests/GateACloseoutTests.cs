@@ -148,9 +148,9 @@ public class GateACloseoutTests
         // Four stages, normal mode (upstream shortages possible), L = 2 planned at every stage, z = 0, no clipping.
         // Per lag variance: BR at stages 1 and 2 against the exact filter reference and against the fixed-L simulation
         // (same demand), plus the retailer pipeline of a perfect-supplier run with the same lags against Little's law
-        // μ·(E[L] − 1) = 100 (the counting rule V14 checks). 2 variances × 5 = 10 points. In normal mode stage k−1's
-        // pipeline is measured before stage k ships in that period, so it shows μ·E[max(0, L − 2)] (fixed L: μ·(L − 2));
-        // that is printed, not asserted (existing counting, unchanged).
+        // μ·(E[L] − 1) = 100 (the counting rule V14 checks). 2 variances × 5 = 10 points. In normal mode the pipeline is
+        // measured after every stage has shipped in the period, so it also shows μ·E[(L − 1)⁺] = μ·(E[L] − 1) (L ≥ 1);
+        // that is printed, not asserted. (Measured inside the stage loop it was μ·E[(L − 2)⁺]: stage k−1 missed s_k[t].)
         double z = GateA.BonferroniZ(10);
         var refs = new[] { GateA.FilterReference(1, 2, 8), GateA.FilterReference(2, 2, 8) };
         bool ok = true;
@@ -197,8 +197,8 @@ public class GateACloseoutTests
             }
 
             ok &= Check($"V7b {name} retailer pipeline, perfect supplier (Little)", 100.0 * (lt.MeanLeadTime - 1), pipe, z);
-            double shifted = 100.0 * lt.LagPmf.Select((x, i) => Math.Max(0, i - 1) * x).Sum();
-            _out.WriteLine($"V7b {name}: normal-mode retailer pipeline {pipeNormal:0.000} vs μ·E[max(0, L − 2)] = {shifted:0.000} (printed only)");
+            double shifted = 100.0 * (lt.MeanLeadTime - 1); // μ·E[(L − 1)⁺], L ≥ 1: items due at t+2 or later at the end of t
+            _out.WriteLine($"V7b {name}: normal-mode retailer pipeline {pipeNormal:0.000} vs μ·E[(L − 1)⁺] = {shifted:0.000} (printed only)");
             _out.WriteLine($"V7b {name}: max |q_stoch − q_fixed| (t ≥ warm-up, 4 stages) = {maxOrderDiff:E2}; max |on-hand diff| = {maxOnHandDiff:0.00}; retailer mean backlog fixed {blFixed:0.000} vs Kaplan {blStoch:0.000}");
             Assert.True(maxOrderDiff < 1e-9, "orders are not pathwise invariant");
             Assert.True(maxOnHandDiff > 1.0, "stochastic lead time had no physical effect");

@@ -310,10 +310,19 @@ public static class SerialChain
                 shipPeriod[k][t] = s;
                 onHandPeriod[k][t] = onHand[k];
                 backlogPeriod[k][t] = backlog[k];
+            }
 
-                // measurement
-                if (t >= cfg.Warmup)
+            // Measurement, after every stage has shipped in period t (plan §2 counting rule: end of period, items
+            // arriving at t+1 excluded). Stage k's shipment s_k[t] enters sched[k−1] only when stage k is processed, which
+            // happens after stage k−1 in the loop above; measured inside that loop, stage k−1 would miss s_k[t] (arrival
+            // t+L ≥ t+2) and report μ·(L−2). On-hand and backlog of a stage do not change after its own step, so only
+            // sched and arr[·][t+1] differ from the in-loop reading.
+            if (t >= cfg.Warmup)
+            {
+                for (int k = 0; k < n; k++)
                 {
+                    double d = inc[k][t];
+                    double s = shipPeriod[k][t];
                     double on = Math.Max(0.0, onHand[k]);
                     double pipe = sched[k] - arr[k][t + 1];
                     sumOnHand[k] += on;
