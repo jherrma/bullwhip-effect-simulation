@@ -22,7 +22,12 @@ public enum SafetySource
 /// </summary>
 public sealed record ChainConfig
 {
-    public required int[] LeadTimes { get; init; }
+    /// <summary>
+    /// Planning lead time L_k per stage; S covers Lp = L_k + R − 1 periods of mean demand. Deterministic arrivals
+    /// (<see cref="StochasticLeadTimes"/> null): an integer, the physical lead time. Kaplan mode: E[L_k] of the lag
+    /// distribution, which may be non-integer at R = 1 (the base case E[L] = 6.4); R &gt; 1 needs an integer (SerialChain).
+    /// </summary>
+    public required double[] LeadTimes { get; init; }
 
     /// <summary>Moving-average window p (must be a multiple of R).</summary>
     public int Window { get; init; } = 8;
@@ -78,7 +83,7 @@ public sealed record ChainConfig
     /// If set (one entry per stage): Kaplan (1970) no-crossing stochastic lead time of each stage's replenishment
     /// (plan S10). Arrivals of shipments (or of the orders themselves for a perfect supplier and the top stage) follow
     /// <see cref="KaplanLeadTime"/>. LeadTimes[k] stays the planning lead time and must equal E[L_k] (planning on the
-    /// known mean). Null (default): deterministic L_k, unchanged behaviour.
+    /// known mean); at R = 1 it may be non-integer. Null (default): deterministic L_k, unchanged behaviour.
     /// </summary>
     public KaplanLeadTime[]? StochasticLeadTimes { get; init; }
 

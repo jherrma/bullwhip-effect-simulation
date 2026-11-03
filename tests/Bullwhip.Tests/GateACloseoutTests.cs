@@ -26,6 +26,22 @@ public class GateACloseoutTests
     private static readonly double[] LagA = { 0.25, 0.50, 0.25 };
     private static readonly double[] LagB = { 0.40, 0.30, 0.20, 0.10 };
 
+    // Base-case lag (plan §2, S10): door-to-door transit T = L − 1 ~ gamma with mean 5.4 and CV 0.30 (shape 1/0.09, scale
+    // 0.486), rounded to the nearest week: P(T = i) = F(i + ½) − F(i − ½), F(−½) := 0, i = 0..20, renormalised; truncated
+    // share 1 − F(20.5) = 3.6e−9 (< 0.1 %). F by a series / continued-fraction regularised incomplete gamma in double
+    // precision, cross-checked against quadrature of the density (|ΔF| ≤ 4e−13). The rounding moves the moments a little:
+    // E[T] = 5.39999922, so E[L] = 6.39999922 (7.8e−7 below 6.4; an earlier coarse quadrature put it at 1e−4), CV(T) = 0.3047.
+    // The hazard is nondecreasing (checked by the KaplanLeadTime constructor).
+    private static readonly double[] LagBase =
+    {
+        1.0215369815754723e-08, 0.00031839334897785067, 0.014677007230507447, 0.09163712768244942,
+        0.20608523492045466, 0.25139573696779643, 0.2051233796515591, 0.12615514375022455,
+        0.06296225634340086, 0.026767884640706487, 0.010024367577260896, 0.0033873417259871804,
+        0.0010514033910037294, 0.0003038709360491412, 8.264441198664055e-05, 2.1329915191046416e-05,
+        5.259662952369362e-06, 1.2460257555989471e-06, 2.848989312460469e-07, 6.31131713598911e-08,
+        1.359026418497758e-08,
+    };
+
     private readonly ITestOutputHelper _out;
 
     public GateACloseoutTests(ITestOutputHelper output)
@@ -35,7 +51,7 @@ public class GateACloseoutTests
 
     private static ChainConfig Four(KaplanLeadTime? lag = null) => new()
     {
-        LeadTimes = new[] { 2, 2, 2, 2 },
+        LeadTimes = new double[] { 2, 2, 2, 2 },
         Window = 8,
         InitialMean = 100,
         Warmup = Warm,
@@ -216,7 +232,7 @@ public class GateACloseoutTests
         // Two-sided (Bonferroni over 5): mean σ̂ of each estimator against its exact Jensen value b·σ_e (C makes
         // E[σ̂²] = σ_e² for Chen too), the one-period error RMS against σ√(1 + 1/p), and the cross term of each against 0.
         const double zSafety = 1.0;
-        var zero = new ChainConfig { LeadTimes = new[] { 2 }, Window = 8, Z = new[] { 0.0 }, InitialMean = 100, Warmup = Warm };
+        var zero = new ChainConfig { LeadTimes = new double[] { 2 }, Window = 8, Z = new[] { 0.0 }, InitialMean = 100, Warmup = Warm };
         var ours = zero with { Z = new[] { zSafety } };
         var chen = ours with { Safety = SafetySource.ChenOnePeriodError };
         double bound = ChenFormulas.SingleStageBullwhipRatio(2, 8, 0.0);
@@ -327,6 +343,69 @@ public class GateACloseoutTests
     }
 
     [Fact]
+    public void V7d_RealMeanLeadTime_P8_MatchesChenEq5() => RealMeanLeadTimeCheck(8);
+
+    [Fact]
+    public void V7d_RealMeanLeadTime_P16_MatchesChenEq5() => RealMeanLeadTimeCheck(16);
+
+    private void RealMeanLeadTimeCheck(int p)
+    {
+        // R = 1, z = 0, iid N(100, 10²), four stages in normal mode, the base-case Kaplan lag (LagBase) at every stage, and
+        // planning L = E[L] of that pmf as computed in code (KaplanLeadTime.MeanLeadTime), so |E[L] − L| ≤ 1e−9 holds by
+        // construction. Cover: S = L·μ̂ with the real L (R = 1, Lp = L). Orders do not depend on the arrivals (IP is
+        // unchanged by a receipt; V7b), so q_t = D_t + L(μ̂_t − μ̂_{t−1}) = (1 + L/p)D_t − (L/p)D_{t−p}, and stage-1
+        // BR = 1 + 2L/p + 2L²/p² for any real L (Chen Eq. 5, ρ = 0). Reference at L = 6.4: p = 8 → 1 + 1.6 + 1.28 = 3.88;
+        // p = 16 → 1 + 0.8 + 0.32 = 2.12. The pmf's E[L] is 7.8e−7 below 6.4, which moves BR by (2/p + 4L/p²)·ΔL = 5.1e−7
+        // (p = 8) or 1.8e−7 (p = 16), below 1e−4 of the standard error. Rounding the planning L to 6 or 7 gives −6.6 % / +10.3 %
+        // (p = 8) and −4.2 % / +6.5 % (p = 16); the check must reject both (as V7c does for Lp ± 1).
+        // Second point: the realised error window for the non-integer Lp (ProtectionWindow) at the retailer, whose input is
+        // iid. e = Σ a_i·D_{t0+i} − Lp·μ̂(t0) with Σ a_i = Σ a_i² = Lp has E[e²] = σ²(Lp + Lp²/p) exactly (Lp from the pmf).
+        // The statistic is the mean square ProtectionErrorRms² (unbiased; the RMS has a Jensen bias). Plan pass rule
+        // (2 % and the Bonferroni CI over the 2 points). Weighting the boundary period by its coverage f would give
+        // σ²(n + f² + Lp²/p), −2.08 % (p = 8) / −2.68 % (p = 16); printed only.
+        var lt = new KaplanLeadTime(LagBase);
+        double planningL = lt.MeanLeadTime;
+        double cv = Math.Sqrt(lt.LagVariance) / lt.MeanLag;
+        _out.WriteLine($"V7d p={p}: base lag m={lt.MaxLag}, Σ={LagBase.Sum():0.000000000000000}, E[T]={lt.MeanLag:0.000000000}, E[L]={planningL:0.000000000} (6.4 − E[L] = {6.4 - planningL:E2}), CV(T)={cv:0.0000}");
+        Assert.True(Math.Abs(planningL - 6.4) < 1e-6);
+
+        var cfg = Four(lt) with { LeadTimes = new[] { planningL, planningL, planningL, planningL }, Window = p };
+        int to = Warm + Periods;
+        var br = new double[Reps];
+        var ms = new double[Reps];
+        for (int rep = 0; rep < Reps; rep++)
+        {
+            var res = SerialChain.Run(cfg with { LeadTimeSeed = GateA.LeadTimeSeed(rep) }, GateA.Demand(rep, to, 100, 0, Sigma));
+            AssertConservation(res);
+            br[rep] = res.Bullwhip(0, Var);
+            ms[rep] = res.ProtectionErrorRms[0] * res.ProtectionErrorRms[0];
+        }
+
+        double z = GateA.BonferroniZ(2);
+        double chen = ChenFormulas.SingleStageBullwhipRatio(6.4, p, 0.0);
+        _out.WriteLine($"V7d p={p}: Chen Eq. 5 at L = 6.4: {chen:0.000000}; at the planning L: {ChenFormulas.SingleStageBullwhipRatio(planningL, p, 0.0):0.000000}");
+        bool ok = Check($"V7d p={p} stage 1 BR vs Chen Eq. 5 (L = 6.4)", chen, br, z);
+        double msRef = Var * (planningL + planningL * planningL / p);
+        ok &= Check($"V7d p={p} retailer protection-error mean square vs σ²(Lp + Lp²/p)", msRef, ms, z);
+
+        var (mean, se) = GateA.MeanAndSe(br);
+        foreach (double wrongL in new[] { 6.0, 7.0 })
+        {
+            double wrong = ChenFormulas.SingleStageBullwhipRatio(wrongL, p, 0.0);
+            bool wrongPasses = GateA.Passes(wrong, mean, se, z);
+            _out.WriteLine($"V7d p={p} planning L={wrongL}: ref={wrong:0.000000} sim/ref−1={mean / wrong - 1:+0.0%;-0.0%} → {(wrongPasses ? "would PASS (not distinguishable)" : "FAILS (distinguishable)")}");
+            Assert.False(wrongPasses);
+        }
+
+        int n = (int)Math.Floor(planningL);
+        double f = planningL - n;
+        double linear = Var * (n + f * f + planningL * planningL / p);
+        var (msMean, msSe) = GateA.MeanAndSe(ms);
+        _out.WriteLine($"V7d p={p} boundary weight f (linear rule) would give {linear:0.000} ({linear / msRef - 1:+0.00%;-0.00%}); sim {msMean:0.000} is {(msMean - linear) / msSe:+0.0;-0.0} se from it; weights {Fmt(ProtectionWindow.Weights(planningL).Skip(n - 1))}");
+        Assert.True(ok);
+    }
+
+    [Fact]
     public void V13b_CostSideTwoPointsBonferroni()
     {
         // PerfectSupplier, R = 1, known σ (plan V13): NS = z·σ·√L − e, e ~ N(0, σ_e²), σ_e = σ√(L + L²/p), exactly. So
@@ -338,7 +417,7 @@ public class GateACloseoutTests
         {
             var cfg = new ChainConfig
             {
-                LeadTimes = new[] { l }, Window = p, PerfectSupplier = true, Safety = SafetySource.KnownSigma,
+                LeadTimes = new double[] { l }, Window = p, PerfectSupplier = true, Safety = SafetySource.KnownSigma,
                 KnownSigma = Sigma, Z = new[] { zs }, InitialMean = 100, Warmup = Warm,
             };
             var bl = new double[Reps];

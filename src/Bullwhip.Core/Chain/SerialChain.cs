@@ -59,11 +59,42 @@ public static class SerialChain
             }
         }
 
-        int Due(int k, int s) => due == null ? s + cfg.LeadTimes[k] : due[k][s + kaplan![k].MaxLag + 1];
+        // Real-valued planning lead time (base case E[L] = 6.4). Deterministic arrivals need an integer L. A non-integer
+        // L is a Kaplan mean and is planned at R = 1 only: there S = E[L]·μ̂ + z·σ̂ is exact, because the net stock at the
+        // end of t is S_τ − D(τ, t] with τ the newest order already received, and t − τ has the lag distribution of L
+        // (Kaplan cuts iid), so E[NS] = (c − E[L])·μ + z·σ̂ in every period and c = E[L]. At R > 1 the per-phase mean of
+        // t − τ (and of the lumps in (τ, t]) is smoothed by the random arrivals: the worst-phase rule behind PhaseTarget,
+        // the cycle-average rule and the order-time rule no longer coincide, so no cover is defined for a real L there.
+        var fixedLead = new int[n];
+        for (int k = 0; k < n; k++)
+        {
+            double l = cfg.LeadTimes[k];
+            if (double.IsNaN(l) || double.IsInfinity(l))
+            {
+                throw new ArgumentException($"Stage {k}: the lead time must be finite.");
+            }
+
+            if (l != Math.Floor(l))
+            {
+                if (kaplan == null)
+                {
+                    throw new ArgumentException($"Stage {k}: a non-integer lead time {l} needs StochasticLeadTimes (deterministic arrivals are integer).");
+                }
+
+                if (r > 1)
+                {
+                    throw new ArgumentException($"Stage {k}: a non-integer planning lead time {l} is supported at R = 1 only (no cover rule for R > 1).");
+                }
+            }
+
+            fixedLead[k] = (int)l;
+        }
+
+        int Due(int k, int s) => due == null ? s + fixedLead[k] : due[k][s + kaplan![k].MaxLag + 1];
 
         int maxLead = kaplan == null
-            ? cfg.LeadTimes.Max()
-            : Enumerable.Range(0, n).Max(k => Math.Max(cfg.LeadTimes[k], kaplan[k].MaxLag + 1));
+            ? fixedLead.Max()
+            : Enumerable.Range(0, n).Max(k => Math.Max((int)Math.Ceiling(cfg.LeadTimes[k]), kaplan[k].MaxLag + 1));
         int len = horizon + maxLead + 3;
         int[] phases = cfg.Phases ?? new int[n];
         double[] zs = cfg.Z ?? new double[n];
@@ -94,12 +125,20 @@ public static class SerialChain
 
         // Periods of mean demand that S covers: Lp, or n·R for the lumpy incoming demand of an upstream stage at R > 1
         // (PhaseTarget). The error term covers the forecast input, which is POS demand under info sharing.
-        var cover = new int[n];
-        var coverObs = new int[n];
+        // Lp is real (R = 1, Kaplan mean) or an integer (R > 1). Realised error window: (t0, t0+⌈Lp⌉] with all weights 1
+        // for an integer Lp (the plain sum below), ProtectionWindow weights otherwise (null = integer).
+        var cover = new double[n];
+        var coverObs = new double[n];
+        var lps = new double[n];
+        var span = new int[n];
+        var weights = new double[]?[n];
         for (int k = 0; k < n; k++)
         {
-            int lpk = cfg.LeadTimes[k] + r - 1;
-            cover[k] = k > 0 && r > 1 ? r * PhaseTarget.Lumps(lpk, r, phases[k], phases[k - 1]) : lpk;
+            double lpk = cfg.LeadTimes[k] + r - 1;
+            lps[k] = lpk;
+            span[k] = (int)Math.Ceiling(lpk);
+            weights[k] = lpk == Math.Floor(lpk) ? null : ProtectionWindow.Weights(lpk);
+            cover[k] = k > 0 && r > 1 ? r * PhaseTarget.Lumps((int)lpk, r, phases[k], phases[k - 1]) : lpk;
             coverObs[k] = cfg.InfoSharing ? lpk : cover[k];
         }
 
@@ -131,7 +170,7 @@ public static class SerialChain
                 fc[k].Prefill(mu0, Mod(phases[k], r));
                 if (due == null)
                 {
-                    for (int tau = 0; tau < cfg.LeadTimes[k]; tau++)
+                    for (int tau = 0; tau < fixedLead[k]; tau++)
                     {
                         arr[k][tau] += mu0;
                         sched[k] += mu0;
@@ -208,7 +247,7 @@ public static class SerialChain
                 double x = cfg.InfoSharing ? demand[t] : d;
                 obs[k][t] = x;
                 fc[k].Observe(x);
-                int lp = cfg.LeadTimes[k] + r - 1;
+                double lp = lps[k];
 
                 // 5 order at order time
                 double qk = 0.0;
@@ -225,16 +264,28 @@ public static class SerialChain
                     // puts w²·R·σ² instead of w·R·σ² on that bucket (σ̂ 4.7 % low at R=4, L=2, p=8). With lumps the
                     // per-period window holds n lumps, and c = n·R removes the offset (Lp − nR)·μ that would
                     // otherwise enter σ̂. The window closes by the order time t0+mR, m = ceil(Lp/R), where the
-                    // error is settled before σ̂ is read: one sample per order time. R = 1: the window (t−Lp, t].
+                    // error is settled before σ̂ is read: one sample per order time. R = 1: the window (t−Lp, t]; a
+                    // non-integer Lp (R = 1 only) uses (t−⌈Lp⌉, t] with the two boundary weights of ProtectionWindow.
                     if (cfg.Safety == SafetySource.EstimatedError && cfg.ConstantMean == null)
                     {
-                        int t0 = t - (lp + r - 1) / r * r;
+                        int t0 = t - (span[k] + r - 1) / r * r;
                         if (t0 >= 0 && !double.IsNaN(pending[k][t0]))
                         {
                             double realised = 0.0;
-                            for (int i = t0 + 1; i <= t0 + lp; i++)
+                            double[]? w = weights[k];
+                            if (w == null)
                             {
-                                realised += obs[k][i];
+                                for (int i = t0 + 1; i <= t0 + span[k]; i++)
+                                {
+                                    realised += obs[k][i];
+                                }
+                            }
+                            else
+                            {
+                                for (int i = 0; i < w.Length; i++)
+                                {
+                                    realised += w[i] * obs[k][t0 + 1 + i];
+                                }
                             }
 
                             double e = realised - coverObs[k] * pending[k][t0];

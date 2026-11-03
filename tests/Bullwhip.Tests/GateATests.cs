@@ -20,7 +20,7 @@ public class GateATests
 
     private static ChainConfig Four(bool info = false) => new()
     {
-        LeadTimes = new[] { 2, 2, 2, 2 },
+        LeadTimes = new double[] { 2, 2, 2, 2 },
         Window = 8,
         InitialMean = 100,
         Warmup = 200,
@@ -80,7 +80,7 @@ public class GateATests
     {
         // Applies to our realised-error σ̂ (SafetySource.EstimatedError, the default), not to Chen's Eq. (3) estimator.
         // The bound holds for both: the cross term of Chen p. 438 is zero for each (V4b, GateACloseoutTests).
-        var cfg = new ChainConfig { LeadTimes = new[] { 2 }, Window = 8, Z = new[] { 1.0 }, InitialMean = 100 };
+        var cfg = new ChainConfig { LeadTimes = new double[] { 2 }, Window = 8, Z = new[] { 1.0 }, InitialMean = 100 };
         var (mean, se) = GateA.BullwhipPerStage(cfg, 10, 0, 100, 2000, 200);
         _out.WriteLine($"V4 (estimator EstimatedError): sim={mean[0]:0.0000} se={se[0]:0.0000} floor={0.98 * 1.625:0.0000}");
         Assert.True(mean[0] >= 0.98 * 1.625);
@@ -156,7 +156,7 @@ public class GateATests
     {
         var cfg = new ChainConfig
         {
-            LeadTimes = new[] { 2 }, Window = 8, PerfectSupplier = true, Safety = SafetySource.KnownSigma,
+            LeadTimes = new double[] { 2 }, Window = 8, PerfectSupplier = true, Safety = SafetySource.KnownSigma,
             KnownSigma = 10, Z = new[] { 1.0 }, InitialMean = 100, Warmup = 200,
         };
         double lp = 2;
@@ -177,7 +177,7 @@ public class GateATests
     {
         var cfg = new ChainConfig
         {
-            LeadTimes = new[] { 1 }, Window = 4, R = 4, Phases = new[] { 0 }, Z = new[] { 0.0 },
+            LeadTimes = new double[] { 1 }, Window = 4, R = 4, Phases = new[] { 0 }, Z = new[] { 0.0 },
             ConstantMean = 100, InitialMean = 100, OrderCost = 0,
         };
         var (mean, se) = GateA.BullwhipPerStage(cfg, 10, 0, 100, 2000, 200);
@@ -230,7 +230,7 @@ public class GateATests
 
     private static readonly ChainConfig R4Retailer = new()
     {
-        LeadTimes = new[] { 2 }, Window = 8, R = 4, Phases = new[] { 0 }, Z = new[] { 1.0 }, InitialMean = 100,
+        LeadTimes = new double[] { 2 }, Window = 8, R = 4, Phases = new[] { 0 }, Z = new[] { 1.0 }, InitialMean = 100,
         Warmup = 200,
     };
 
@@ -288,7 +288,7 @@ public class GateATests
     {
         var cfg = new ChainConfig
         {
-            LeadTimes = new[] { 2 }, Window = 8, PerfectSupplier = true, Safety = SafetySource.KnownSigma,
+            LeadTimes = new double[] { 2 }, Window = 8, PerfectSupplier = true, Safety = SafetySource.KnownSigma,
             KnownSigma = 10, Z = new[] { 1.0 }, InitialMean = 100, Warmup = 200,
         };
         var bl = new double[20];
@@ -319,7 +319,7 @@ public class GateATests
     [Fact]
     public void V14_Little()
     {
-        var cfg = new ChainConfig { LeadTimes = new[] { 3 }, Window = 8, PerfectSupplier = true, InitialMean = 100, Warmup = 200 };
+        var cfg = new ChainConfig { LeadTimes = new double[] { 3 }, Window = 8, PerfectSupplier = true, InitialMean = 100, Warmup = 200 };
         double pipe = 0, ord = 0;
         for (int r = 0; r < 20; r++)
         {
@@ -336,7 +336,7 @@ public class GateATests
     [Fact]
     public void V15_GoldenTrace()
     {
-        var cfg = new ChainConfig { LeadTimes = new[] { 1, 1 }, Window = 1, Z = new[] { 0.0, 0 }, InitialMean = 0, Warmup = 0 };
+        var cfg = new ChainConfig { LeadTimes = new double[] { 1, 1 }, Window = 1, Z = new[] { 0.0, 0 }, InitialMean = 0, Warmup = 0 };
         var res = SerialChain.Run(cfg, new double[] { 4, 4, 8, 8, 8, 8 });
         void Eq(string n, double[] exp, double[] act)
         {
