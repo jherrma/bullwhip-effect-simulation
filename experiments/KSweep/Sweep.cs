@@ -48,7 +48,7 @@ public sealed record SweepSettings
     public double[] LagPmf { get; init; } = { 0.57, 0.43 };
 
     /// <summary>Base cost parameters (mean demand, rates, item values). <see cref="CostParameters.OrderCostScale"/> is set per run.</summary>
-    public CostParameters Costs { get; init; } = new();
+    public CostParameters Costs { get; init; } = new() { OrderCostScale = 1 }; // factor 1 as in C28–C34 (C38)
 }
 
 /// <summary>

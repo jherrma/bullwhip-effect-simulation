@@ -13,7 +13,7 @@ public static class KFactorStudy
     /// <summary>Runs the sweep at <paramref name="scale"/> and reports each line through <paramref name="say"/>.</summary>
     public static void Run(double scale, Action<string> say)
     {
-        double baseOrderCost = BaseCostModel.OrderCost(new CostParameters())[0];
+        double baseOrderCost = BaseCostModel.OrderCost(new CostParameters { OrderCostScale = 1 })[0];
         say($"Base K_1 = {baseOrderCost:F6}; BME / K_1 = {BmeOrderCost / baseOrderCost:F6}; scale used = {scale:F6}");
         say("Training replications 200-249, holdout replications 6000-6199");
         var settings = new SweepSettings { TrainFirst = 200, TestFirst = 6000, Scales = new[] { scale } };

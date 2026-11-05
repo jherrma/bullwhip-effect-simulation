@@ -33,8 +33,11 @@ public sealed record CostParameters
     /// <summary>Order interval R at which the fixed cost K is calibrated (the Economic Order Quantity optimum is R* = 4).</summary>
     public double CalibrationInterval { get; init; } = 4;
 
-    /// <summary>Multiplier on the calibrated K. 1 is the base case; the sweep of C28 uses 0.25 to 4.</summary>
-    public double OrderCostScale { get; init; } = 1;
+    /// <summary>
+    /// Multiplier on the calibrated K (DECISIONS C38). The base case is the BME factor 121.75 / K₁ = 6331/2400 ≈ 2.6379,
+    /// so that K₁ = 121.75 €. Factor 1 (K₁ = 46.2) is the calibration of C28–C36 and is kept for those studies.
+    /// </summary>
+    public double OrderCostScale { get; init; } = 6331.0 / 2400.0;
 }
 
 /// <summary>

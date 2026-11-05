@@ -11,6 +11,9 @@ public class CostModelTests
 {
     private static readonly CostParameters Base = new();
 
+    // Factor 1 is the calibration of DECISIONS C28–C36: K₁ = 8·μ·h₁ = 46.2 with R* = 4 exactly.
+    private static readonly CostParameters Factor1 = new() { OrderCostScale = 1 };
+
     [Fact]
     public void StageValues_AreGeometricFrom30To10()
     {
@@ -22,9 +25,9 @@ public class CostModelTests
     }
 
     [Fact]
-    public void OrderCost_BaseValuesAre46_2_32_0_22_2_15_4()
+    public void OrderCost_CalibratedFactorOneValuesAre46_2_32_0_22_2_15_4()
     {
-        var k = BaseCostModel.OrderCost(Base);
+        var k = BaseCostModel.OrderCost(Factor1);
         Assert.Equal(46.2, k[0], 1);
         Assert.Equal(32.0, k[1], 1);
         Assert.Equal(22.2, k[2], 1);
@@ -32,21 +35,39 @@ public class CostModelTests
     }
 
     [Fact]
-    public void OrderCost_CalibratesOptimalIntervalToFour()
+    public void OrderCost_CalibratesOptimalIntervalToFourAtFactorOne()
     {
+        var k = BaseCostModel.OrderCost(Factor1);
+        var h = BaseCostModel.HoldingRatePerUnitWeek(Factor1);
+        for (int stage = 0; stage < Factor1.Stages; stage++)
+        {
+            Assert.Equal(4.0, BaseCostModel.OptimalInterval(k[stage], h[stage], Factor1.Mu), 9);
+        }
+    }
+
+    [Fact]
+    public void OrderCost_BaseCaseIsBmeFactor_RetailerCostsExactly121_75()
+    {
+        // DECISIONS C38: K₁ = 121.75 € with factor 6331/2400 = 121.75 / 46.1538…
+        var k = BaseCostModel.OrderCost(Base);
+        Assert.Equal(121.75, k[0], 9);
+        Assert.Equal(6331.0 / 2400.0, Base.OrderCostScale, 12);
+    }
+
+    [Fact]
+    public void OptimalInterval_AtBaseCaseIsFourTimesRootOfFactor()
+    {
+        // At factor s the textbook optimum moves to R* = 4·√s (≈ 6.50 at the BME factor), not to 4.
         var k = BaseCostModel.OrderCost(Base);
         var h = BaseCostModel.HoldingRatePerUnitWeek(Base);
-        for (int stage = 0; stage < Base.Stages; stage++)
-        {
-            Assert.Equal(4.0, BaseCostModel.OptimalInterval(k[stage], h[stage], Base.Mu), 9);
-        }
+        Assert.Equal(4.0 * Math.Sqrt(Base.OrderCostScale), BaseCostModel.OptimalInterval(k[0], h[0], Base.Mu), 9);
     }
 
     [Fact]
     public void OrderCost_ScalesLinearlyWithTheSweepFactor()
     {
-        var doubled = BaseCostModel.OrderCost(Base with { OrderCostScale = 2 });
-        var baseline = BaseCostModel.OrderCost(Base);
+        var doubled = BaseCostModel.OrderCost(Factor1 with { OrderCostScale = 2 });
+        var baseline = BaseCostModel.OrderCost(Factor1);
         for (int stage = 0; stage < Base.Stages; stage++)
         {
             Assert.Equal(2 * baseline[stage], doubled[stage], 9);
