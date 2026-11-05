@@ -80,11 +80,12 @@ public sealed class UpstreamStudyRunner
         }
     }
 
-    private void RunMultiplier(CostParameters costs, double beta, Action<string> say)
+    private void RunMultiplier(CostParameters baseCosts, double beta, Action<string> say)
     {
+        var costs = baseCosts with { UpstreamShortageMultiplier = beta };
         var b = BaseCostModel.ShortageCostPerStage(costs, beta);
         say($"beta = {beta:F2}: b = [{string.Join(", ", b.Select(x => x.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)))}]");
-        var evaluator = new ChainCostEvaluator(_sweep, beta);
+        var evaluator = new ChainCostEvaluator(_sweep);
         var search = new SafetyFactorSearch(evaluator, _sweep);
         var intervals = _sweep.Intervals;
         var z = new double[intervals.Length][];

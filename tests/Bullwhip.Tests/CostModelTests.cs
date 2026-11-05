@@ -75,6 +75,19 @@ public class CostModelTests
     }
 
     [Fact]
+    public void UpstreamShortage_BaseCaseIsBetaOneNineTimesHolding()
+    {
+        // DECISIONS C41: β = 1, so every stage k ≥ 2 pays 9·h_k, the same critical ratio as the retailer.
+        Assert.Equal(1.0, Base.UpstreamShortageMultiplier, 12);
+        var b = BaseCostModel.ShortageCostPerStage(Base, Base.UpstreamShortageMultiplier);
+        var h = BaseCostModel.HoldingRatePerUnitWeek(Base);
+        for (int stage = 1; stage < Base.Stages; stage++)
+        {
+            Assert.Equal(9 * h[stage], b[stage], 12);
+        }
+    }
+
+    [Fact]
     public void HoldingRate_IsStoragePlusCapital()
     {
         var h = BaseCostModel.HoldingRatePerUnitWeek(Base);

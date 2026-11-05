@@ -38,6 +38,12 @@ public sealed record CostParameters
     /// so that K₁ = 121.75 €. Factor 1 (K₁ = 46.2) is the calibration of C28–C36 and is kept for those studies.
     /// </summary>
     public double OrderCostScale { get; init; } = 6331.0 / 2400.0;
+
+    /// <summary>
+    /// Upstream shortage multiplier β: stages k ≥ 2 pay b_k = β·9·h_k, the same critical ratio 0.9 as the retailer (DECISIONS C41).
+    /// Base case 1. The studies of C28–C40 pin 0 explicitly.
+    /// </summary>
+    public double UpstreamShortageMultiplier { get; init; } = 1;
 }
 
 /// <summary>

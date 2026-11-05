@@ -13,14 +13,10 @@ namespace KSweep;
 public sealed class ChainCostEvaluator
 {
     private readonly SweepSettings _settings;
-    private readonly double _upstreamShortageMultiplier;
-
     /// <param name="settings">Model and replication settings.</param>
-    /// <param name="upstreamShortageMultiplier">β in b_k = β·9·h_k at the stages k ≥ 2; 0 charges shortage at the retailer only.</param>
-    public ChainCostEvaluator(SweepSettings settings, double upstreamShortageMultiplier = 0)
+    public ChainCostEvaluator(SweepSettings settings)
     {
         _settings = settings;
-        _upstreamShortageMultiplier = upstreamShortageMultiplier;
         Lags = new KaplanLeadTime(settings.LagPmf);
     }
 
@@ -59,7 +55,7 @@ public sealed class ChainCostEvaluator
             Holding = BaseCostModel.StorageRatePerUnitWeek(costs),
             Value = BaseCostModel.StageValues(costs),
             CapitalRate = BaseCostModel.CapitalRatePerWeek(costs),
-            ShortageCost = BaseCostModel.ShortageCostPerStage(costs, _upstreamShortageMultiplier),
+            ShortageCost = BaseCostModel.ShortageCostPerStage(costs, costs.UpstreamShortageMultiplier),
             OrderCost = BaseCostModel.OrderCost(costs),
             AllowNegativeOrders = false,
             InitialMean = costs.Mu,

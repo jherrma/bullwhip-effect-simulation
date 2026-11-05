@@ -24,7 +24,7 @@ void Say(string line)
 string raw = args.Length > 0 ? args[0] : "";
 string baseName = raw.EndsWith("-bme", StringComparison.Ordinal) ? raw[..^4] : raw;
 bool bme = baseName != raw && baseName is "gate-b" or "upstream" or "larger-beta";
-string mode = bme ? baseName : raw is "gate-b" or "upstream" or "larger-beta" or "single-stage" or "k-factor" ? raw : "k-sweep";
+string mode = bme ? baseName : raw is "gate-b" or "upstream" or "larger-beta" or "single-stage" or "k-factor" or "k-bme-neg" ? raw : "k-sweep";
 string? output = args.Skip(mode == "k-sweep" ? 0 : mode == "k-factor" ? 2 : 1).FirstOrDefault();
 
 switch (mode)
@@ -41,6 +41,9 @@ switch (mode)
     case "k-factor":
         KFactorStudy.Run(double.Parse(args[1], CultureInfo.InvariantCulture), Say);
         break;
+    case "k-bme-neg":
+        new KSweepRunner(BmeNegativeSweep()).Run(Say);
+        break;
     case "gate-b":
         new GateBRunner(GateBOnBase(new GateBSettings(), bme)).Run(Say);
         break;
@@ -54,9 +57,17 @@ if (output != null)
     File.WriteAllLines(output, lines);
 }
 
-// With "-bme" the study runs on the default cost parameters, i.e. the BME base case (DECISIONS C38, C39).
+// The -bme modes use the BME order cost with β = 0 as recorded in C39 and C40; the β = 1 base case is not rerun here.
 static GateBSettings GateBOnBase(GateBSettings s, bool bme) =>
-    bme ? s with { Sweep = s.Sweep with { Costs = new CostParameters() } } : s;
+    bme ? s with { Sweep = s.Sweep with { Costs = new CostParameters { UpstreamShortageMultiplier = 0 } } } : s;
+
+// C40: the K sweep at the BME base only (β = 0), with safety factors −4 to 8 (negative z allowed), on the C28 replications.
+static SweepSettings BmeNegativeSweep() => new()
+{
+    Costs = new CostParameters { UpstreamShortageMultiplier = 0 },
+    Scales = new[] { 6331.0 / 2400.0 },
+    Grid = Enumerable.Range(0, 49).Select(i => -4.0 + 0.25 * i).ToArray(),
+};
 
 static UpstreamStudySettings UpstreamOnBase(UpstreamStudySettings s, bool bme) =>
-    bme ? s with { Sweep = s.Sweep with { Costs = new CostParameters() } } : s;
+    bme ? s with { Sweep = s.Sweep with { Costs = new CostParameters { UpstreamShortageMultiplier = 0 } } } : s;
