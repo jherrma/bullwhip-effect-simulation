@@ -62,6 +62,7 @@ public static class SerialChain
                 run.Step(t, k);
             }
 
+            run.AgeBacklogs();
             if (t >= cfg.Warmup)
             {
                 run.Measure(t);
@@ -76,6 +77,10 @@ public static class SerialChain
     {
         ValidateStagesAndOrdering(cfg);
         ValidateLeadTimes(cfg);
+        if (!(cfg.ShortageEscalation >= 0.0))
+        {
+            throw new ArgumentException("ChainConfig.ShortageEscalation (κ) must be ≥ 0.");
+        }
     }
 
     /// <summary>Stage count, per-stage arrays, R and the window p, and the R = 1-only σ̂ estimators.</summary>
@@ -91,6 +96,8 @@ public static class SerialChain
         RequirePerStage(cfg.Z, n, nameof(cfg.Z));
         RequirePerStage(cfg.Holding, n, nameof(cfg.Holding));
         RequirePerStage(cfg.Value, n, nameof(cfg.Value));
+        RequirePerStage(cfg.OrderCost, n, nameof(cfg.OrderCost));
+        RequirePerStage(cfg.ShortageCost, n, nameof(cfg.ShortageCost));
 
         int r = cfg.R;
         int p = cfg.Window;
@@ -270,6 +277,7 @@ public static class SerialChain
         private readonly double[][] _arrivals;
         private readonly double[] _onHand;
         private readonly double[] _backlog;
+        private readonly int[] _backlogWeeks;
         private readonly double[] _onOrder;
         private readonly double[] _inTransit;
 
@@ -313,6 +321,7 @@ public static class SerialChain
             _arrivals = PerStage(n, ArrivalSlots(cfg, _fixedLead, horizon), 0.0);
             _onHand = new double[n];
             _backlog = new double[n];
+            _backlogWeeks = new int[n];
             _onOrder = new double[n];
             _inTransit = new double[n];
 
@@ -392,6 +401,18 @@ public static class SerialChain
         }
 
         /// <summary>
+        /// Counter of consecutive periods with a backlog per stage (n_{k,t} in <see cref="ChainConfig.ShortageEscalation"/>).
+        /// Called once per period, after every stage has stepped and before <see cref="Measure"/>, also during warm-up.
+        /// </summary>
+        public void AgeBacklogs()
+        {
+            for (int k = 0; k < Stages; k++)
+            {
+                _backlogWeeks[k] = _backlog[k] > 1e-9 ? _backlogWeeks[k] + 1 : 0;
+            }
+        }
+
+        /// <summary>
         /// Measurement at the end of period t, after every stage has shipped (plan §2 counting rule: arrivals of t+1 excluded).
         /// Stage k dispatches its shipment to stage k−1 after k−1's step, so a reading inside the stage loop would miss it in
         /// _inTransit[k−1] and report μ·(L−2).
@@ -407,10 +428,11 @@ public static class SerialChain
                 _sums.Pipeline[k] += pipeline;
                 _sums.HoldingCost[k] += _holding[k] * stock;
                 _sums.CapitalCost[k] += _cfg.CapitalRate * _value[k] * (stock + pipeline);
+                double unitCost = _cfg.ShortageCost == null ? 0.0 : _cfg.ShortageCost[k];
+                _sums.ShortageCost[k] += unitCost * _backlog[k] * (1.0 + _cfg.ShortageEscalation * _backlogWeeks[k]);
             }
 
-            // Retailer service: shortage cost, fill rate (shipped / demanded) and ready rate (periods without backlog).
-            _sums.ShortageCost[0] += _cfg.ShortageCost * _backlog[0];
+            // Retailer service: fill rate (shipped / demanded) and ready rate (periods without backlog).
             _sums.RetailerDemand += _incoming[0][t];
             _sums.RetailerShipped += _shipPeriod[0][t];
             if (_backlog[0] <= 1e-9)
@@ -520,7 +542,7 @@ public static class SerialChain
                 _totals.OrderCount[k]++;
                 if (t >= _cfg.Warmup)
                 {
-                    _sums.OrderCost[k] += _cfg.OrderCost;
+                    _sums.OrderCost[k] += _cfg.OrderCost == null ? 0.0 : _cfg.OrderCost[k];
                 }
             }
 

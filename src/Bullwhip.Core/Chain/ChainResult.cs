@@ -38,6 +38,19 @@ public sealed class ChainResult
     public required double[] ShortageCost { get; init; }
     public required double[] OrderCost { get; init; }
 
+    /// <summary>Number of periods in the measurement window (the run length minus the warm-up).</summary>
+    public int MeasuredPeriods => Orders[0].Length - Warmup;
+
+    /// <summary>
+    /// Total cost per period over the measurement window: shortage cost plus holding, capital and fixed order cost of every
+    /// stage, divided by <see cref="MeasuredPeriods"/>.
+    /// </summary>
+    public double TotalCostPerPeriod()
+    {
+        double total = HoldingCost.Sum() + CapitalCost.Sum() + ShortageCost.Sum() + OrderCost.Sum();
+        return total / MeasuredPeriods;
+    }
+
     /// <summary>Number of orders with positive quantity per stage (whole run).</summary>
     public required int[] OrderCount { get; init; }
 

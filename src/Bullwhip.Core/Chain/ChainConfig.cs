@@ -114,11 +114,25 @@ public sealed record ChainConfig
     /// <summary>Capital cost rate per period (i/52 for a weekly model).</summary>
     public double CapitalRate { get; init; }
 
-    /// <summary>Backlog cost per unit-period, at the retailer only (plan Q4 a).</summary>
-    public double ShortageCost { get; init; }
+    /// <summary>
+    /// Backlog cost b_k per unit-period at stage k, charged on the stage's backlog in the measurement window (one entry per
+    /// stage). Null: zero at every stage. The base values are derived in <see cref="Costs.BaseCostModel.ShortageCostPerStage"/>
+    /// (retailer b = 9·h₁, upstream stages a multiple of 9·h_k; zero upstream is the base case).
+    /// </summary>
+    public double[]? ShortageCost { get; init; }
 
-    /// <summary>Fixed cost K per order placed.</summary>
-    public double OrderCost { get; init; }
+    /// <summary>
+    /// Counter escalation κ ≥ 0 of the backlog cost (sensitivity, DECISIONS C34). With n_{k,t} the number of consecutive
+    /// periods up to t with a backlog at stage k, the shortage cost of stage k in period t is
+    /// <see cref="ShortageCost"/>_k · backlog_{k,t} · (1 + κ · n_{k,t}). Zero (default) is the plain per-unit-period cost.
+    /// </summary>
+    public double ShortageEscalation { get; init; }
+
+    /// <summary>
+    /// Fixed cost K_k per order placed by stage k, charged in the measurement window (one entry per stage). Null: zero.
+    /// The base values are derived in <see cref="Costs.BaseCostModel.OrderCost"/>.
+    /// </summary>
+    public double[]? OrderCost { get; init; }
 
     /// <summary>
     /// If set (one entry per stage): Kaplan (1970) no-crossing stochastic lead time of each stage's replenishment

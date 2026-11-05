@@ -373,7 +373,7 @@ public class GateATests
         var cfg = new ChainConfig
         {
             LeadTimes = new double[] { 1 }, Window = 4, R = 4, Phases = new[] { 0 }, Z = new[] { 0.0 },
-            ConstantMean = 100, InitialMean = 100, OrderCost = 0,
+            ConstantMean = 100, InitialMean = 100,
         };
         var (mean, se) = GateA.BullwhipPerStage(cfg, 10, 0, 100, 2000, 200);
         double expected = 1 + 3 * 100.0 * 100.0 / 100.0;
