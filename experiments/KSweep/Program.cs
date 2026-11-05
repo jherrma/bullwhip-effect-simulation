@@ -24,7 +24,7 @@ void Say(string line)
 string raw = args.Length > 0 ? args[0] : "";
 string baseName = raw.EndsWith("-bme", StringComparison.Ordinal) ? raw[..^4] : raw;
 bool bme = baseName != raw && baseName is "gate-b" or "upstream" or "larger-beta";
-string mode = bme ? baseName : raw is "gate-b" or "upstream" or "larger-beta" or "single-stage" or "k-factor" or "k-bme-neg" ? raw : "k-sweep";
+string mode = bme ? baseName : raw is "gate-b" or "upstream" or "larger-beta" or "single-stage" or "k-factor" or "k-bme-neg" or "gate-b-base" or "gate-b-base-neg" or "k-base" or "k-base-neg" ? raw : "k-sweep";
 string? output = args.Skip(mode == "k-sweep" ? 0 : mode == "k-factor" ? 2 : 1).FirstOrDefault();
 
 switch (mode)
@@ -43,6 +43,18 @@ switch (mode)
         break;
     case "k-bme-neg":
         new KSweepRunner(BmeNegativeSweep()).Run(Say);
+        break;
+    case "gate-b-base":
+        new GateBRunner(BaseGateB(neg: false)).Run(Say);
+        break;
+    case "gate-b-base-neg":
+        new GateBRunner(BaseGateB(neg: true)).Run(Say);
+        break;
+    case "k-base":
+        new KSweepRunner(BaseSweep(neg: false)).Run(Say);
+        break;
+    case "k-base-neg":
+        new KSweepRunner(BaseSweep(neg: true)).Run(Say);
         break;
     case "gate-b":
         new GateBRunner(GateBOnBase(new GateBSettings(), bme)).Run(Say);
@@ -67,6 +79,21 @@ static SweepSettings BmeNegativeSweep() => new()
     Costs = new CostParameters { UpstreamShortageMultiplier = 0 },
     Scales = new[] { 6331.0 / 2400.0 },
     Grid = Enumerable.Range(0, 49).Select(i => -4.0 + 0.25 * i).ToArray(),
+};
+
+// C42: the base case (BME order cost, β = 1, DECISIONS C38, C41). neg = true uses z from −4 to 8, otherwise 0 to 8.
+static SweepSettings BaseSweep(bool neg) => new()
+{
+    Costs = new CostParameters(),
+    Scales = new[] { 6331.0 / 2400.0 },
+    Grid = neg
+        ? Enumerable.Range(0, 49).Select(i => -4.0 + 0.25 * i).ToArray()
+        : Enumerable.Range(0, 33).Select(i => 0.25 * i).ToArray(),
+};
+
+static GateBSettings BaseGateB(bool neg) => new()
+{
+    Sweep = BaseSweep(neg) with { TrainFirst = 200, TestFirst = 2000 },
 };
 
 static UpstreamStudySettings UpstreamOnBase(UpstreamStudySettings s, bool bme) =>
