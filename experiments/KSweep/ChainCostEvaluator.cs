@@ -1,5 +1,7 @@
 using Bullwhip.Core.Chain;
 using Bullwhip.Core.Costs;
+using Bullwhip.Core.Demand;
+using Bullwhip.Core.Rng;
 using Bullwhip.Core.Validation;
 
 namespace KSweep;
@@ -16,6 +18,13 @@ public sealed class ChainCostEvaluator
     /// <param name="settings">Model and replication settings.</param>
     public ChainCostEvaluator(SweepSettings settings)
     {
+        _ = Ar1Demand.InnovationSigma(settings.Sigma, settings.Rho); // C50/C52 range rule lives in Core
+
+        if (settings.Pattern != DemandPattern.Stable && settings.Rho != 0)
+        {
+            throw new ArgumentException("Rho (C50) and a non-stable demand pattern (C51) cannot be combined; use only one.", nameof(settings));
+        }
+
         _settings = settings;
         Lags = new KaplanLeadTime(settings.LagPmf);
     }
@@ -38,8 +47,24 @@ public sealed class ChainCostEvaluator
     /// <summary>Full result of replication <paramref name="rep"/> (its own demand and lead-time streams).</summary>
     public ChainResult Run(CostParameters costs, int r, double[] z, int rep)
     {
-        var demand = GateA.Demand(rep, _settings.Warmup + _settings.Periods, costs.Mu, 0, _settings.Sigma);
-        return SerialChain.Run(ChainConfigFor(costs, r, z, rep), demand);
+        return SerialChain.Run(ChainConfigFor(costs, r, z, rep), Demand(costs, rep));
+    }
+
+    /// <summary>Demand path of replication <paramref name="rep"/> (pattern and rho of the settings); shared by the evaluator and reports.</summary>
+    public double[] Demand(CostParameters costs, int rep)
+    {
+        int length = _settings.Warmup + _settings.Periods;
+        return _settings.Pattern == DemandPattern.Stable
+            ? GateA.Demand(rep, length, costs.Mu, _settings.Rho, Ar1Demand.InnovationSigma(_settings.Sigma, _settings.Rho))
+            : PatternDemand(costs, rep, length);
+    }
+
+    // C51: same replication seed as GateA.Demand (common random numbers across patterns).
+    private double[] PatternDemand(CostParameters costs, int rep, int length)
+    {
+        var rng = new SplitMix64(SplitMix64.Derive(ChenSingleStageCheck.BaseSeed, (ulong)rep));
+        var p = _settings.PatternParameters with { Mu = costs.Mu, Sigma = _settings.Sigma };
+        return DemandPatterns.Generate(_settings.Pattern, p, length, rng);
     }
 
     private ChainConfig ChainConfigFor(CostParameters costs, int r, double[] z, int rep)

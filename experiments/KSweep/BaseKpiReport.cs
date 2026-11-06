@@ -46,7 +46,7 @@ public sealed class BaseKpiReportRunner
         {
             int rep = _s.TestFirst + i;
             var res = _evaluator.Run(_costs, R, z, rep);
-            var demand = GateA.Demand(rep, _s.Warmup + _s.Periods, _costs.Mu, 0, _s.Sigma);
+            var demand = _evaluator.Demand(_costs, rep);
             Add(m, i, res, Window(demand, res.Warmup));
         }
 

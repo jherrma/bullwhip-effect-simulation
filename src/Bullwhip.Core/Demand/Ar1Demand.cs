@@ -26,4 +26,18 @@ public static class Ar1Demand
     {
         return sigma * sigma / (1.0 - rho * rho);
     }
+
+    /// <summary>
+    /// Innovation std σ·sqrt(1−ρ²) that keeps the stationary std at σ (DECISIONS C50, C52).
+    /// Throws <see cref="ArgumentOutOfRangeException"/> unless −1 &lt; ρ &lt; 1 (NaN included).
+    /// </summary>
+    public static double InnovationSigma(double sigma, double rho)
+    {
+        if (!(rho > -1.0 && rho < 1.0))
+        {
+            throw new ArgumentOutOfRangeException(nameof(rho), rho, "Rho must lie in (-1, 1).");
+        }
+
+        return sigma * Math.Sqrt(1.0 - rho * rho);
+    }
 }

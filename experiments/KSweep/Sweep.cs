@@ -1,4 +1,5 @@
 using Bullwhip.Core.Costs;
+using Bullwhip.Core.Demand;
 
 namespace KSweep;
 
@@ -34,6 +35,15 @@ public sealed record SweepSettings
 
     /// <summary>Coordinate-search passes over the stages.</summary>
     public int Passes { get; init; } = 2;
+
+    /// <summary>AR(1) autocorrelation of demand (DECISIONS C50); the stationary standard deviation stays at Sigma.</summary>
+    public double Rho { get; init; } = 0;
+
+    /// <summary>Demand pattern (DECISIONS C51); Stable is the base case. Only one of Pattern and Rho may be non-default.</summary>
+    public DemandPattern Pattern { get; init; } = DemandPattern.Stable;
+
+    /// <summary>Parameters of the C51 mean profile; Mu and Sigma are overridden by the cost parameters and <see cref="Sigma"/>.</summary>
+    public DemandPatternParameters PatternParameters { get; init; } = new();
 
     /// <summary>Candidate safety factors: 0 to 8 in steps of 0.25.</summary>
     public double[] Grid { get; init; } = Enumerable.Range(0, 33).Select(i => 0.25 * i).ToArray();
