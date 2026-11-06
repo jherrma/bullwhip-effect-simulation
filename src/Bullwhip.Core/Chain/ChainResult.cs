@@ -32,6 +32,12 @@ public sealed class ChainResult
     /// <summary>Retailer: shipped / demanded within the window (fill rate, β).</summary>
     public required double FillRate { get; init; }
 
+    /// <summary>
+    /// Retailer immediate fill rate (DECISIONS C46): Σ_t min(D_t, V_t) / Σ_t D_t over the window, with V_t = max(0, on-hand after the
+    /// arrivals of t − backlog carried into t). Counts only units of today's demand that leave from stock in the same period.
+    /// </summary>
+    public required double ImmediateFillRate { get; init; }
+
     /// <summary>Window costs per stage (holding, capital, shortage, order fixed cost).</summary>
     public required double[] HoldingCost { get; init; }
     public required double[] CapitalCost { get; init; }

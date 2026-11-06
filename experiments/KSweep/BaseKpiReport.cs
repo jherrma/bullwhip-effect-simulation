@@ -78,6 +78,7 @@ public sealed class BaseKpiReportRunner
         Put(m, "total", i, res.TotalCostPerPeriod());
         Put(m, "ready", i, res.ReadyRate);
         Put(m, "fill", i, res.FillRate);
+        Put(m, "immfill", i, res.ImmediateFillRate);
     }
 
     private void Put(Dictionary<string, double[]> m, string key, int i, double value)
@@ -133,7 +134,9 @@ public sealed class BaseKpiReportRunner
         say($"    sum:     holding {Ci(Sum(m, "hold", n))} | capital {Ci(Sum(m, "cap", n))} | shortage {Ci(Sum(m, "short", n))} | order {Ci(Sum(m, "order", n))}");
         say($"    TOTAL cost/week: {Ci(m["total"])}");
         say("");
-        say($"(c) Retailer ready rate: {Ci(m["ready"])}    fill rate: {Ci(m["fill"])}");
+        say($"(c) Retailer ready rate: {Ci(m["ready"])}");
+        say($"    immediate fill rate (sum min(D, V) / sum D, DECISIONS C46): {Ci(m["immfill"])}");
+        say($"    fill rate (shipped/demanded incl. later shipments, not informative): {Ci(m["fill"])}");
         say("");
         say("(d) Mean on-hand / backlog / pipeline per stage (mean ± 95 % CI)");
         for (int k = 0; k < n; k++)
@@ -157,12 +160,14 @@ public sealed class BaseKpiReportRunner
         int n = _costs.Stages;
         double ready = m["ready"].Average();
         double fill = m["fill"].Average();
+        double imm = m["immfill"].Average();
         var br = Enumerable.Range(0, n).Select(k => m[$"br4_{k}"].Average()).ToArray();
         double total = m["total"].Average();
         bool p3 = Enumerable.Range(0, n - 1).All(k => br[k] < br[k + 1]);
         say("Verdict of the pre-registered predictions (DECISIONS C44)");
         say($"  P1: ready rate mean {ready:F4} in [0.93, 0.97]  -> {PassFail(ready >= 0.93 && ready <= 0.97)}");
         say($"  P2: fill rate mean {fill:F4} > ready rate mean {ready:F4} and > 0.98  -> {PassFail(fill > ready && fill > 0.98)}");
+        say($"  P2' (DECISIONS C46): immediate fill rate mean {imm:F4} < 1.0 and > 0.98  -> {PassFail(imm < 1.0 && imm > 0.98)}");
         say($"  P3: BR(4-week) = {string.Join(" < ", br.Select(b => b.ToString("F4")))}  strictly increasing  -> {PassFail(p3)}");
         say($"  P4: total cost/week {total:F4} > 123.31 (difference {total - 123.31:F4})  -> {PassFail(total > 123.31)}");
     }

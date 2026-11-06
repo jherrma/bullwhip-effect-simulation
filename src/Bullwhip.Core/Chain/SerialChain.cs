@@ -276,6 +276,7 @@ public static class SerialChain
         // (includes what the supplier still owes); _inTransit: dispatched to the stage and not yet arrived (the physical pipeline).
         private readonly double[][] _arrivals;
         private readonly double[] _onHand;
+        private double _retailerStockFreeForDemand; // V_t of C46 (set in Step, read in Measure)
         private readonly double[] _backlog;
         private readonly int[] _backlogWeeks;
         private readonly double[] _onOrder;
@@ -365,6 +366,7 @@ public static class SerialChain
             // 1 receive
             double received = _arrivals[k][t];
             _onHand[k] += received;
+
             _onOrder[k] -= received;
             _inTransit[k] -= received;
             _totals.Arrived[k] += received;
@@ -375,6 +377,12 @@ public static class SerialChain
             _totals.Incoming[k] += incomingDemand;
 
             // 3 demand and shipment
+            if (k == 0)
+            {
+                // V_t of C46: on-hand after arrivals less the backlog carried into t (that stock ships to earlier periods first).
+                _retailerStockFreeForDemand = Math.Max(0.0, _onHand[0] - _backlog[0]);
+            }
+
             _backlog[k] += incomingDemand;
             bool perfectUpstream = _cfg.PerfectSupplier && k > 0;
             double shipment = perfectUpstream ? incomingDemand : Math.Max(0.0, Math.Min(_onHand[k], _backlog[k]));
@@ -435,6 +443,7 @@ public static class SerialChain
             // Retailer service: fill rate (shipped / demanded) and ready rate (periods without backlog).
             _sums.RetailerDemand += _incoming[0][t];
             _sums.RetailerShipped += _shipPeriod[0][t];
+            _sums.RetailerImmediate += Math.Min(_incoming[0][t], _retailerStockFreeForDemand);
             if (_backlog[0] <= 1e-9)
             {
                 _sums.ReadyPeriods++;
@@ -458,6 +467,7 @@ public static class SerialChain
                 MeanPipeline = _sums.Pipeline.Select(v => v / scale).ToArray(),
                 ReadyRate = _sums.ReadyPeriods / scale,
                 FillRate = _sums.RetailerDemand > 0 ? _sums.RetailerShipped / _sums.RetailerDemand : 1.0,
+                ImmediateFillRate = _sums.RetailerDemand > 0 ? _sums.RetailerImmediate / _sums.RetailerDemand : 1.0,
                 HoldingCost = _sums.HoldingCost,
                 CapitalCost = _sums.CapitalCost,
                 ShortageCost = _sums.ShortageCost,
@@ -690,6 +700,8 @@ public static class SerialChain
         public double RetailerDemand { get; set; }
 
         public double RetailerShipped { get; set; }
+
+        public double RetailerImmediate { get; set; }
 
         public double ReadyPeriods { get; set; }
     }
