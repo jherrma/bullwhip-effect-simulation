@@ -75,15 +75,15 @@ public class CostModelTests
     }
 
     [Fact]
-    public void UpstreamShortage_BaseCaseIsBetaOneNineTimesHolding()
+    public void UpstreamShortage_BaseCaseIsBetaOneTwentySixTimesHolding()
     {
-        // DECISIONS C41: β = 1, so every stage k ≥ 2 pays 9·h_k, the same critical ratio as the retailer.
+        // DECISIONS C41: β = 1, so every stage k ≥ 2 pays 26·h_k, the same critical ratio as the retailer (C43, C45).
         Assert.Equal(1.0, Base.UpstreamShortageMultiplier, 12);
         var b = BaseCostModel.ShortageCostPerStage(Base, Base.UpstreamShortageMultiplier);
         var h = BaseCostModel.HoldingRatePerUnitWeek(Base);
         for (int stage = 1; stage < Base.Stages; stage++)
         {
-            Assert.Equal(9 * h[stage], b[stage], 12);
+            Assert.Equal(26 * h[stage], b[stage], 12);
         }
     }
 
@@ -103,13 +103,13 @@ public class CostModelTests
     }
 
     [Fact]
-    public void ShortageCost_IsNineTimesRetailerHoldingAndGivesCriticalRatioNinetyPercent()
+    public void ShortageCost_IsTwentySixTimesRetailerHoldingAndGivesCriticalRatioTwentySixOverTwentySeven()
     {
         double b = BaseCostModel.ShortageCost(Base);
         double h1 = BaseCostModel.HoldingRatePerUnitWeek(Base)[0];
-        Assert.Equal(0.5192, b, 4);
-        Assert.Equal(9 * h1, b, 12);
-        Assert.Equal(0.9, b / (b + h1), 9);
+        Assert.Equal(1.5, b, 9);
+        Assert.Equal(26 * h1, b, 12);
+        Assert.Equal(26.0 / 27.0, b / (b + h1), 9);
     }
 
     [Fact]

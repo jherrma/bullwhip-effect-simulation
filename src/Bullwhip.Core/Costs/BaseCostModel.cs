@@ -27,8 +27,8 @@ public sealed record CostParameters
     /// <summary>Weeks per year used to convert annual rates to weekly ones.</summary>
     public double WeeksPerYear { get; init; } = 52;
 
-    /// <summary>Shortage cost b in units of the retailer holding rate h₁ (b = 9·h₁ gives a critical ratio of 0.9).</summary>
-    public double ShortageToHoldingRatio { get; init; } = 9;
+    /// <summary>Shortage cost b in units of the retailer holding rate h₁ (b = 26·h₁ gives a critical ratio of 26/27 ≈ 0.963, DECISIONS C43, C45).</summary>
+    public double ShortageToHoldingRatio { get; init; } = 26;
 
     /// <summary>Order interval R at which the fixed cost K is calibrated (the Economic Order Quantity optimum is R* = 4).</summary>
     public double CalibrationInterval { get; init; } = 4;
@@ -40,7 +40,7 @@ public sealed record CostParameters
     public double OrderCostScale { get; init; } = 6331.0 / 2400.0;
 
     /// <summary>
-    /// Upstream shortage multiplier β: stages k ≥ 2 pay b_k = β·9·h_k, the same critical ratio 0.9 as the retailer (DECISIONS C41).
+    /// Upstream shortage multiplier β: stages k ≥ 2 pay b_k = β·26·h_k, the same critical ratio as the retailer (DECISIONS C41, C43, C45).
     /// Base case 1. The studies of C28–C40 pin 0 explicitly.
     /// </summary>
     public double UpstreamShortageMultiplier { get; init; } = 1;
@@ -61,7 +61,7 @@ public sealed record CostParameters
 /// on-hand stock and pipeline. Their sum is the economic holding rate (s + i)·v_k/52 used for calibration.
 /// </para>
 /// <para>
-/// Shortage cost b = 9·h₁ at the retailer, with h₁ = (s + i)·v₁/52, gives the critical ratio b/(b + h₁) = 0.9.
+/// Shortage cost b = 26·h₁ at the retailer, with h₁ = (s + i)·v₁/52, gives the critical ratio b/(b + h₁) = 26/27 ≈ 0.963 (DECISIONS C43, C45).
 /// </para>
 /// <para>
 /// Fixed order cost K_k. Cost per week C(R) = K/R + h·μ·R/2 (fixed cost per order over the interval plus average cycle
@@ -104,15 +104,15 @@ public static class BaseCostModel
         return StageValues(p).Select(v => (p.StorageRate + p.CapitalRate) * v / p.WeeksPerYear).ToArray();
     }
 
-    /// <summary>Shortage cost per unit-week of backlog at the retailer, b = 9·h₁.</summary>
+    /// <summary>Shortage cost per unit-week of backlog at the retailer, b = 26·h₁.</summary>
     public static double ShortageCost(CostParameters p)
     {
         return p.ShortageToHoldingRatio * HoldingRatePerUnitWeek(p)[0];
     }
 
     /// <summary>
-    /// Shortage cost per unit-week of backlog at every stage: b_1 = 9·h₁ at the retailer and
-    /// b_k = <paramref name="upstreamMultiplier"/>·9·h_k at the stages k ≥ 2 (a sensitivity; 0 charges only the retailer).
+    /// Shortage cost per unit-week of backlog at every stage: b_1 = 26·h₁ at the retailer and
+    /// b_k = <paramref name="upstreamMultiplier"/>·26·h_k at the stages k ≥ 2 (a sensitivity; 0 charges only the retailer).
     /// </summary>
     public static double[] ShortageCostPerStage(CostParameters p, double upstreamMultiplier)
     {

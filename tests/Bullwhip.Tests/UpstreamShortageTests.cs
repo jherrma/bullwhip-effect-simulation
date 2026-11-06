@@ -55,16 +55,16 @@ public class UpstreamShortageTests
     }
 
     [Fact]
-    public void ShortageCostPerStage_UpstreamIsBetaTimesNineTimesHoldingRate()
+    public void ShortageCostPerStage_UpstreamIsBetaTimesTwentySixTimesHoldingRate()
     {
         var h = BaseCostModel.HoldingRatePerUnitWeek(Base);
         var b = BaseCostModel.ShortageCostPerStage(Base, 0.25);
 
         Assert.Equal(BaseCostModel.ShortageCost(Base), b[0], 12);
-        Assert.Equal(9 * h[0], b[0], 12);
+        Assert.Equal(26 * h[0], b[0], 12);
         for (int k = 1; k < 4; k++)
         {
-            Assert.Equal(0.25 * 9 * h[k], b[k], 12);
+            Assert.Equal(0.25 * 26 * h[k], b[k], 12);
         }
 
         Assert.All(BaseCostModel.ShortageCostPerStage(Base, 0).Skip(1), c => Assert.Equal(0.0, c));
