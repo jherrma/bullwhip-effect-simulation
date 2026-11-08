@@ -15,6 +15,8 @@ namespace KSweep;
 public sealed class ChainCostEvaluator
 {
     private readonly SweepSettings _settings;
+    private readonly KaplanLeadTime[]? _stageLags;
+
     /// <param name="settings">Model and replication settings.</param>
     public ChainCostEvaluator(SweepSettings settings)
     {
@@ -27,10 +29,26 @@ public sealed class ChainCostEvaluator
 
         _settings = settings;
         Lags = new KaplanLeadTime(settings.LagPmf);
+        RequireWired(settings.Variant);
+        if (settings.Variant.LagPmfPerStage is { } pmfs)
+        {
+            if (pmfs.Length != settings.Costs.Stages)
+            {
+                throw new ArgumentException($"LagPmfPerStage has {pmfs.Length} entries but the chain has {settings.Costs.Stages} stages.", nameof(settings));
+            }
+
+            _stageLags = pmfs.Select(p => new KaplanLeadTime(p)).ToArray();
+        }
     }
 
     /// <summary>Lead-time distribution of every stage.</summary>
     public KaplanLeadTime Lags { get; }
+
+    /// <summary>Lead-time distribution of each of <paramref name="stages"/> stages (the variant's lag pmf per stage, else <see cref="Lags"/> at every stage).</summary>
+    public IReadOnlyList<KaplanLeadTime> StageLags(int stages)
+    {
+        return _stageLags ?? Enumerable.Repeat(Lags, stages).ToArray();
+    }
 
     /// <summary>Cost per week of each replication in [first, first + count).</summary>
     public double[] CostsPerRep(CostParameters costs, int r, double[] z, int first, int count)
@@ -67,10 +85,41 @@ public sealed class ChainCostEvaluator
         return DemandPatterns.Generate(_settings.Pattern, p, length, rng);
     }
 
+    private static void RequireWired(Variant v)
+    {
+        if (v.InfoSharing)
+        {
+            throw NotWired(nameof(Variant.InfoSharing), "IS-1");
+        }
+
+        if (v.InfoSharingSigmaFromIncomingOrders)
+        {
+            throw NotWired(nameof(Variant.InfoSharingSigmaFromIncomingOrders), "IS-3");
+        }
+
+        if (v.SigmaWindow != null)
+        {
+            throw NotWired(nameof(Variant.SigmaWindow), "MAW-1");
+        }
+
+        if (v.ForecastWindow != null)
+        {
+            throw NotWired(nameof(Variant.ForecastWindow), "MAW-1");
+        }
+    }
+
+    private static NotSupportedException NotWired(string field, string story) =>
+        new($"Variant.{field} is not wired into the chain yet (story {story}).");
+
     private ChainConfig ChainConfigFor(CostParameters costs, int r, double[] z, int rep)
     {
         int n = costs.Stages;
-        return new ChainConfig
+        if (_stageLags != null && _stageLags.Length != n)
+        {
+            throw new ArgumentException($"LagPmfPerStage has {_stageLags.Length} entries but the chain has {n} stages.", nameof(costs));
+        }
+
+        var config = new ChainConfig
         {
             LeadTimes = Enumerable.Repeat(Lags.MeanLeadTime, n).ToArray(),
             StochasticLeadTimes = Enumerable.Repeat(Lags, n).ToArray(),
@@ -87,6 +136,23 @@ public sealed class ChainCostEvaluator
             Warmup = _settings.Warmup,
             Window = _settings.Window,
         };
+
+        // LT-1: per-stage lag distributions replace the shared one (own mean lead time per stage).
+        if (_stageLags != null)
+        {
+            config = config with
+            {
+                LeadTimes = _stageLags.Select(l => l.MeanLeadTime).ToArray(),
+                StochasticLeadTimes = _stageLags.ToArray(),
+            };
+        }
+
+        return ApplyVariant(config);
+    }
+
+    private ChainConfig ApplyVariant(ChainConfig config)
+    {
+        return config;
     }
 }
 

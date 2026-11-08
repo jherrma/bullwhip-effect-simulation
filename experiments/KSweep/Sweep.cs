@@ -59,6 +59,34 @@ public sealed record SweepSettings
 
     /// <summary>Base cost parameters (mean demand, rates, item values). <see cref="CostParameters.OrderCostScale"/> is set per run.</summary>
     public CostParameters Costs { get; init; } = new() { OrderCostScale = 1, UpstreamShortageMultiplier = 0 }; // factor 1, β = 0 as in C28–C40 (C38, C41)
+
+    /// <summary>Countermeasure configuration; the default is the base case.</summary>
+    public Variant Variant { get; init; } = new();
+}
+
+/// <summary>
+/// One countermeasure configuration. Every property defaults to the base case. Do not compare two variants with <c>==</c>:
+/// record equality compares <see cref="LagPmfPerStage"/> by array reference, so check the fields one by one.
+/// </summary>
+public sealed record Variant
+{
+    /// <summary>Label in the report. Base value: "base".</summary>
+    public string Name { get; init; } = "base";
+
+    /// <summary>Full information sharing of the end demand along the chain. Base value: false.</summary>
+    public bool InfoSharing { get; init; } = false;
+
+    /// <summary>Estimate sigma-hat from the incoming orders under information sharing. Base value: false.</summary>
+    public bool InfoSharingSigmaFromIncomingOrders { get; init; } = false;
+
+    /// <summary>Lag probability mass function per stage. Base value: null, which means <see cref="SweepSettings.LagPmf"/> at every stage.</summary>
+    public double[][]? LagPmfPerStage { get; init; } = null;
+
+    /// <summary>Window of the sigma-hat estimator. Base value: null, which means the forecast window p.</summary>
+    public int? SigmaWindow { get; init; } = null;
+
+    /// <summary>Forecast window p. Base value: null, which means <see cref="SweepSettings.Window"/> (p = 8).</summary>
+    public int? ForecastWindow { get; init; } = null;
 }
 
 /// <summary>

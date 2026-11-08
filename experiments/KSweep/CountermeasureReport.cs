@@ -1,0 +1,149 @@
+using Bullwhip.Core.Costs;
+
+namespace KSweep;
+
+/// <summary>Registry of the countermeasure variants that the <c>countermeasure</c> mode can run.</summary>
+public static class Countermeasures
+{
+    private static readonly string[] KnownIds = { "base", "lt", "lt-dose" };
+
+    /// <summary>The variants compared with the base for the countermeasure <paramref name="id"/>.</summary>
+    public static IReadOnlyList<Variant> For(string id)
+    {
+        return id switch
+        {
+            "base" => new[] { new Variant() },
+            "lt" => new[] { LeadTime(0) },
+            "lt-dose" => new[] { 0.30, 0.20, 0.10, 0 }.Select(LeadTime).ToArray(),
+            _ => throw new ArgumentException($"Unknown countermeasure id '{id}'. Known ids: {string.Join(", ", KnownIds)}.", nameof(id)),
+        };
+    }
+
+    /// <summary>Lag pmf of one link: T = L − 1 is 1 with probability q, else 0 (at q = 0 a point mass, as KaplanLeadTime needs P(T = m) &gt; 0).</summary>
+    public static double[] LagPmfForQ(double q)
+    {
+        if (q < 0 || q > 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(q), q, "q must be in [0, 1].");
+        }
+
+        return q == 0 ? new[] { 1.0 } : new[] { 1 - q, q };
+    }
+
+    private static Variant LeadTime(double q) => new()
+    {
+        Name = $"lt q={q.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}",
+        LagPmfPerStage = Enumerable.Repeat(0, 4).Select(_ => LagPmfForQ(q)).ToArray(),
+    };
+}
+
+/// <summary>
+/// Compares the base case with countermeasure variants under the C44 protocol: R = 4, z from the coordinate search on the
+/// training replications, measurement on the held-out replications. Base and variant run on the same replications, so the
+/// differences are paired.
+/// </summary>
+public sealed class CountermeasureRunner
+{
+    private const int R = 4;
+    private readonly SweepSettings _base;
+    private readonly IReadOnlyList<Variant> _variants;
+    private readonly CostParameters _costs;
+
+    public CountermeasureRunner(SweepSettings baseSettings, IReadOnlyList<Variant> variants)
+    {
+        _base = baseSettings;
+        _variants = variants;
+        _costs = baseSettings.Costs;
+    }
+
+    /// <summary>Runs the base and every variant and reports each line through <paramref name="say"/>.</summary>
+    public void Run(Action<string> say)
+    {
+        var baseSettings = _base with { Variant = new Variant() };
+        var settingsPerVariant = _variants.Select(v => _base with { Variant = v }).ToArray();
+        var baseEvaluator = new ChainCostEvaluator(baseSettings);
+        var evaluators = settingsPerVariant.Select(s => new ChainCostEvaluator(s)).ToArray();
+        say("Countermeasure comparison (C44 protocol)");
+        say($"R = {R}, K scale {_costs.OrderCostScale:F4}, beta = {_costs.UpstreamShortageMultiplier}, shortage/holding ratio {_costs.ShortageToHoldingRatio}");
+        say($"Training replications {_base.TrainFirst}..{_base.TrainFirst + _base.TrainReps - 1}, held-out {_base.TestFirst}..{_base.TestFirst + _base.TestReps - 1}, 95 % CI with t = {_base.T975}");
+        say("");
+        var zBase = Optimize(baseEvaluator, baseSettings);
+        var mBase = Collect(baseEvaluator, zBase);
+        Block("base", baseEvaluator, zBase, mBase, say);
+        for (int i = 0; i < _variants.Count; i++)
+        {
+            RunVariant(_variants[i], settingsPerVariant[i], evaluators[i], zBase, mBase, say);
+        }
+    }
+
+    private void RunVariant(Variant v, SweepSettings s, ChainCostEvaluator ev, double[] zBase, KpiSample mBase, Action<string> say)
+    {
+        var z = Optimize(ev, s);
+        var m = Collect(ev, z);
+        Block(v.Name, ev, z, m, say);
+        Diff(m, mBase, say);
+        var fixedZ = Collect(ev, zBase);
+        Block(v.Name + " at base z", ev, zBase, fixedZ, say);
+        Diff(fixedZ, mBase, say);
+    }
+
+    private double[] Optimize(ChainCostEvaluator ev, SweepSettings s)
+    {
+        return new SafetyFactorSearch(ev, s).Optimize(_costs, R, SafetyFactorSearch.Uniform(_costs.Stages, 1.0), s.Passes);
+    }
+
+    private KpiSample Collect(ChainCostEvaluator ev, double[] z)
+    {
+        return KpiSample.Collect(ev, _costs, R, z, _base.TestFirst, _base.TestReps);
+    }
+
+    private string Ci(double[] x)
+    {
+        var (mean, half) = Report.Interval(x, _base.T975);
+        return $"{mean,10:F4} ± {half:F4}";
+    }
+
+    private void Block(string name, ChainCostEvaluator ev, double[] z, KpiSample m, Action<string> say)
+    {
+        int n = _costs.Stages;
+        string edge = Report.AtGridEdge(z, _base.Grid) ? "  [z at grid edge]" : "";
+        say($"== {name}");
+        say($"z per stage (1 = retailer): {Report.Vector(z)}{edge}");
+        say($"cover periods (replication {_base.TestFirst}): [{string.Join(", ", Enumerable.Range(0, n).Select(k => m[$"cover_{k}"][0].ToString("F2")))}]");
+        var lags = ev.StageLags(n);
+        for (int k = 0; k < n; k++)
+        {
+            say($"  stage {k + 1}: E[L] = {Report.F(lags[k].MeanLeadTime)}, CV(L) = {(Math.Sqrt(lags[k].LagVariance) / lags[k].MeanLeadTime).ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
+        }
+
+        for (int k = 0; k < n; k++)
+        {
+            say($"  stage {k + 1}: BR4 {Ci(m[$"br4_{k}"])} | sigma-hat {Ci(m[$"sigma_{k}"])} | error rms {Ci(m[$"errrms_{k}"])} | backlog {Ci(m[$"backlog_{k}"])} | pipeline {Ci(m[$"pipe_{k}"])}");
+        }
+
+        say($"  sum:     holding {Ci(m.SumOver("hold", n))} | capital {Ci(m.SumOver("cap", n))} | shortage {Ci(m.SumOver("short", n))} | order {Ci(m.SumOver("order", n))}");
+        say($"  pipeline capital per stage: [{string.Join(", ", Enumerable.Range(0, n).Select(k => Ci(m[$"pipecap_{k}"]).Trim()))}] | sum {Ci(m.SumOver("pipecap", n))}");
+        say($"  TOTAL cost/week: {Ci(m["total"])}");
+        say($"  ready rate: {Ci(m["ready"])}");
+        say($"  immediate fill rate: {Ci(m["immfill"])}");
+        say("");
+    }
+
+    private void Diff(KpiSample a, KpiSample b, Action<string> say)
+    {
+        int n = _costs.Stages;
+        say("  difference to base (paired, same replication)");
+        for (int k = 0; k < n; k++)
+        {
+            say($"    stage {k + 1}: BR4 {DiffCi(a, b, $"br4_{k}")} | sigma-hat {DiffCi(a, b, $"sigma_{k}")} | error rms {DiffCi(a, b, $"errrms_{k}")} | backlog {DiffCi(a, b, $"backlog_{k}")} | pipeline {DiffCi(a, b, $"pipe_{k}")}");
+        }
+
+        say($"    sum:     holding {Ci(Report.Differences(a.SumOver("hold", n), b.SumOver("hold", n)))} | capital {Ci(Report.Differences(a.SumOver("cap", n), b.SumOver("cap", n)))} | shortage {Ci(Report.Differences(a.SumOver("short", n), b.SumOver("short", n)))} | order {Ci(Report.Differences(a.SumOver("order", n), b.SumOver("order", n)))}");
+        say($"    TOTAL cost/week: {DiffCi(a, b, "total")}");
+        say($"    ready rate: {DiffCi(a, b, "ready")}");
+        say($"    immediate fill rate: {DiffCi(a, b, "immfill")}");
+        say("");
+    }
+
+    private string DiffCi(KpiSample a, KpiSample b, string key) => Ci(Report.Differences(a[key], b[key]));
+}

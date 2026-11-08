@@ -27,28 +27,12 @@ public class GateATests
         InfoSharing = info,
     };
 
-    private void Table(string name, double[] refs, double[] mean, double[] se, double z, bool[] ok)
-    {
-        for (int i = 0; i < refs.Length; i++)
-        {
-            _out.WriteLine($"{name} stage {i + 1}: ref={refs[i],8:0.0000} sim={mean[i],8:0.0000} rel={mean[i] / refs[i] - 1,8:+0.00%;-0.00%} se={se[i],7:0.0000} z={z:0.00} {(ok[i] ? "PASS" : "FAIL")}");
-        }
-    }
-
-    private void CheckStages(string name, double[] refs, double[] mean, double[] se)
-    {
-        double z = GateA.BonferroniZ(refs.Length);
-        var ok = refs.Select((r, i) => GateA.Passes(r, mean[i], se[i], z)).ToArray();
-        Table(name, refs, mean, se, z, ok);
-        Assert.True(ok.All(x => x), $"{name}: a stage failed");
-    }
-
     [Fact]
     public void V2_Decentralised()
     {
         var (mean, se) = GateA.BullwhipPerStage(Four(), 10, 0, 100, 2000, 200);
         var refs = Enumerable.Range(1, 4).Select(k => GateA.FilterReference(k, 2, 8)).ToArray();
-        CheckStages("V2", refs, mean, se);
+        CountermeasureTestChains.CheckStages("V2", refs, mean, se, _out);
         double z = GateA.BonferroniZ(4);
 
         // Stage 1 two-sided against Chen Eq. (5) (ChenFormulas, independent of FilterReference): |BR/ref − 1| ≤ 2 % and
@@ -72,7 +56,7 @@ public class GateATests
         var (mean, se) = GateA.BullwhipPerStage(Four(true), 10, 0, 100, 2000, 200);
         var refs = Enumerable.Range(1, 4)
             .Select(k => k == 1 ? GateA.FilterReference(1, 2, 8) : GateA.ChenCentralised(k, 2, 8)).ToArray();
-        CheckStages("V3", refs, mean, se);
+        CountermeasureTestChains.CheckStages("V3", refs, mean, se, _out);
     }
 
     private bool Check(string name, double reference, double[] values, double z)
@@ -377,7 +361,7 @@ public class GateATests
         };
         var (mean, se) = GateA.BullwhipPerStage(cfg, 10, 0, 100, 2000, 200);
         double expected = 1 + 3 * 100.0 * 100.0 / 100.0;
-        CheckStages("V9", new[] { expected }, mean, se);
+        CountermeasureTestChains.CheckStages("V9", new[] { expected }, mean, se, _out);
     }
 
     [Fact]

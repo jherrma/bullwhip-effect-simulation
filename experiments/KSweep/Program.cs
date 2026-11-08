@@ -11,6 +11,8 @@ using KSweep;
 //        dotnet run -c Release --project experiments/KSweep -- single-stage [output-file]   (DECISIONS C33)
 //        dotnet run -c Release --project experiments/KSweep -- k-factor <scale> [output-file]   (DECISIONS C37)
 //        dotnet run -c Release --project experiments/KSweep -- base-kpi [output-file]      (DECISIONS C44)
+//        dotnet run -c Release --project experiments/KSweep -- countermeasure <id> [output-file]
+//        dotnet run -c Release --project experiments/KSweep -- countermeasure-smoke <id> [output-file]   (plumbing check only, 2 + 3 replications)
 //        gate-b-bme, upstream-bme, larger-beta-bme: the same studies at the BME base case (factor 6331/2400, DECISIONS C39).
 
 CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
@@ -25,8 +27,8 @@ void Say(string line)
 string raw = args.Length > 0 ? args[0] : "";
 string baseName = raw.EndsWith("-bme", StringComparison.Ordinal) ? raw[..^4] : raw;
 bool bme = baseName != raw && baseName is "gate-b" or "upstream" or "larger-beta";
-string mode = bme ? baseName : raw is "gate-b" or "upstream" or "larger-beta" or "single-stage" or "base-kpi" or "k-factor" or "k-bme-neg" or "gate-b-base" or "gate-b-base-neg" or "k-base" or "k-base-neg" ? raw : "k-sweep";
-string? output = args.Skip(mode == "k-sweep" ? 0 : mode == "k-factor" ? 2 : 1).FirstOrDefault();
+string mode = bme ? baseName : raw is "gate-b" or "upstream" or "larger-beta" or "single-stage" or "base-kpi" or "countermeasure" or "countermeasure-smoke" or "k-factor" or "k-bme-neg" or "gate-b-base" or "gate-b-base-neg" or "k-base" or "k-base-neg" ? raw : "k-sweep";
+string? output = args.Skip(mode == "k-sweep" ? 0 : mode is "k-factor" or "countermeasure" or "countermeasure-smoke" ? 2 : 1).FirstOrDefault();
 
 switch (mode)
 {
@@ -41,6 +43,12 @@ switch (mode)
         break;
     case "base-kpi":
         new BaseKpiReportRunner(BaseSweep(neg: false)).Run(Say);
+        break;
+    case "countermeasure":
+        new CountermeasureRunner(BaseSweep(neg: false), Countermeasures.For(args[1])).Run(Say);
+        break;
+    case "countermeasure-smoke":
+        new CountermeasureRunner(SmokeSweep(), Countermeasures.For(args[1])).Run(Say);
         break;
     case "k-factor":
         KFactorStudy.Run(double.Parse(args[1], CultureInfo.InvariantCulture), Say);
@@ -93,6 +101,17 @@ static SweepSettings BaseSweep(bool neg) => new()
     Grid = neg
         ? Enumerable.Range(0, 49).Select(i => -4.0 + 0.25 * i).ToArray()
         : Enumerable.Range(0, 33).Select(i => 0.25 * i).ToArray(),
+};
+
+// Plumbing check of the countermeasure mode: replications 9000+, z = 1; the numbers are not valid results.
+static SweepSettings SmokeSweep() => BaseSweep(neg: false) with
+{
+    TrainFirst = 9000,
+    TrainReps = 2,
+    TestFirst = 9100,
+    TestReps = 3,
+    Grid = new[] { 1.0 },
+    Passes = 1,
 };
 
 static GateBSettings BaseGateB(bool neg) => new()
