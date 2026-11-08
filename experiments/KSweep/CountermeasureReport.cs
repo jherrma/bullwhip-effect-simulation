@@ -5,7 +5,7 @@ namespace KSweep;
 /// <summary>Registry of the countermeasure variants that the <c>countermeasure</c> mode can run.</summary>
 public static class Countermeasures
 {
-    private static readonly string[] KnownIds = { "base", "lt", "lt-dose", "is-f", "is-m", "is" };
+    private static readonly string[] KnownIds = { "base", "lt", "lt-dose", "is-f", "is-m", "is", "is-lt", "is-lt-parts" };
 
     /// <summary>The variants compared with the base for the countermeasure <paramref name="id"/>.</summary>
     public static IReadOnlyList<Variant> For(string id)
@@ -18,6 +18,8 @@ public static class Countermeasures
             "is-f" => new[] { IsF },
             "is-m" => new[] { IsM },
             "is" => new[] { IsF, IsM },
+            "is-lt" => new[] { IsLt },
+            "is-lt-parts" => new[] { IsF, LeadTime(0), IsLt },
             _ => throw new ArgumentException($"Unknown countermeasure id '{id}'. Known ids: {string.Join(", ", KnownIds)}.", nameof(id)),
         };
     }
@@ -36,6 +38,13 @@ public static class Countermeasures
     private static readonly Variant IsF = new() { Name = "is-f", InfoSharing = true };
 
     private static readonly Variant IsM = new() { Name = "is-m", InfoSharing = true, InfoSharingSigmaFromIncomingOrders = true };
+
+    private static readonly Variant IsLt = new()
+    {
+        Name = "is-f + lt q=0",
+        InfoSharing = true,
+        LagPmfPerStage = Enumerable.Repeat(0, 4).Select(_ => LagPmfForQ(0)).ToArray(),
+    };
 
     private static Variant LeadTime(double q) => new()
     {
@@ -77,13 +86,28 @@ public sealed class CountermeasureRunner
         var zBase = Optimize(baseEvaluator, baseSettings);
         var mBase = Collect(baseEvaluator, zBase);
         Block("base", baseEvaluator, zBase, mBase, say);
+        var samples = new List<KpiSample>();
         for (int i = 0; i < _variants.Count; i++)
         {
-            RunVariant(_variants[i], settingsPerVariant[i], evaluators[i], zBase, mBase, say);
+            samples.Add(RunVariant(_variants[i], settingsPerVariant[i], evaluators[i], zBase, mBase, say));
+        }
+
+        if (IsInteractionSet(_variants))
+        {
+            Interaction(samples[0], samples[1], samples[2], mBase, say);
         }
     }
 
-    private void RunVariant(Variant v, SweepSettings s, ChainCostEvaluator ev, double[] zBase, KpiSample mBase, Action<string> say)
+    /// <summary>True for exactly [is-f, lt (lag pmf, no IS), is-f + lt]: the entry "is-lt-parts".</summary>
+    private static bool IsInteractionSet(IReadOnlyList<Variant> v)
+    {
+        return v.Count == 3
+            && v[0].InfoSharing && v[0].LagPmfPerStage is null
+            && !v[1].InfoSharing && v[1].LagPmfPerStage is not null
+            && v[2].InfoSharing && v[2].LagPmfPerStage is not null;
+    }
+
+    private KpiSample RunVariant(Variant v, SweepSettings s, ChainCostEvaluator ev, double[] zBase, KpiSample mBase, Action<string> say)
     {
         var z = Optimize(ev, s);
         var m = Collect(ev, z);
@@ -92,6 +116,26 @@ public sealed class CountermeasureRunner
         var fixedZ = Collect(ev, zBase);
         Block(v.Name + " at base z", ev, zBase, fixedZ, say);
         Diff(fixedZ, mBase, say);
+        return m;
+    }
+
+    /// <summary>Interaction per replication: (comb − base) − (is − base) − (lt − base), each at its own z; paired CI.</summary>
+    private void Interaction(KpiSample isF, KpiSample lt, KpiSample comb, KpiSample baseSample, Action<string> say)
+    {
+        say("Interaction: (is-f + lt q=0) - is-f - lt q=0, relative to base (paired, same replication, each variant at its own z)");
+        say($"    TOTAL cost/week: {InteractionCi(isF, lt, comb, baseSample, "total")}");
+        for (int k = 0; k < _costs.Stages; k++)
+        {
+            say($"    stage {k + 1}: BR4 {InteractionCi(isF, lt, comb, baseSample, $"br4_{k}")}");
+        }
+
+        say("");
+    }
+
+    private string InteractionCi(KpiSample isF, KpiSample lt, KpiSample comb, KpiSample baseSample, string key)
+    {
+        var x = comb[key].Select((c, i) => (c - baseSample[key][i]) - (isF[key][i] - baseSample[key][i]) - (lt[key][i] - baseSample[key][i])).ToArray();
+        return Ci(x);
     }
 
     private double[] Optimize(ChainCostEvaluator ev, SweepSettings s)
