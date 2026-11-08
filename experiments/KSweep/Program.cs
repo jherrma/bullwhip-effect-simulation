@@ -45,10 +45,10 @@ switch (mode)
         new BaseKpiReportRunner(BaseSweep(neg: false)).Run(Say);
         break;
     case "countermeasure":
-        new CountermeasureRunner(BaseSweep(neg: false), Countermeasures.For(args[1])).Run(Say);
+        RunCountermeasure(args[1], BaseSweep(neg: false));
         break;
     case "countermeasure-smoke":
-        new CountermeasureRunner(SmokeSweep(), Countermeasures.For(args[1])).Run(Say);
+        RunCountermeasure(args[1], SmokeSweep());
         break;
     case "k-factor":
         KFactorStudy.Run(double.Parse(args[1], CultureInfo.InvariantCulture), Say);
@@ -79,6 +79,18 @@ switch (mode)
 if (output != null)
 {
     File.WriteAllLines(output, lines);
+}
+
+// Countermeasure 03 (id "ri") has its own runner; every other id goes through the variant registry.
+void RunCountermeasure(string id, SweepSettings sweep)
+{
+    if (id == "ri")
+    {
+        new OrderIntervalRunner(sweep, new OrderCostCutSettings()).Run(Say);
+        return;
+    }
+
+    new CountermeasureRunner(sweep, Countermeasures.For(id)).Run(Say);
 }
 
 // The -bme modes use the BME order cost with β = 0 as recorded in C39 and C40; the β = 1 base case is not rerun here.

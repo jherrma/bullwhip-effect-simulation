@@ -1,4 +1,5 @@
 using Bullwhip.Core.Chain;
+using Bullwhip.Core.Costs;
 using Xunit;
 
 namespace Bullwhip.Tests;
@@ -98,6 +99,51 @@ public class ChainCostPropertyTests
                 Assert.Equal(3 * plain.ShortageCost[k], scaled.ShortageCost[k], 7);
                 Assert.True(scaled.HoldingCost[k] == 0 && scaled.CapitalCost[k] == 0 && scaled.OrderCost[k] == 0, $"{label} stage {k}");
             }
+        }
+    }
+
+    // Invariant: the order-cost scale only prices orders. The dynamics and every other cost component are identical, the total
+    // is affine in f, and CostParameters.OrderCostScale scales BaseCostModel.OrderCost linearly (the lever of the K-cut grid).
+    [Fact]
+    public void OrderCostScale_IsAffineAndLeavesTheDynamicsUnchanged()
+    {
+        foreach (double f in new[] { 0.5, 0.37, 0.1 })
+        {
+            foreach (var (label, config, rep) in Cases())
+            {
+                var full = PropertyTestChains.Run(config, rep);
+                var cut = PropertyTestChains.Run(config with { OrderCost = PropertyTestChains.OrderCost.Select(k => f * k).ToArray() }, rep);
+                AssertSameExceptOrderCost(label, full, cut);
+                double orderCostAtOne = full.OrderCost.Sum() / full.MeasuredPeriods;
+                double expected = full.TotalCostPerPeriod() + (f - 1) * orderCostAtOne;
+                Assert.True(Math.Abs(cut.TotalCostPerPeriod() - expected) <= 1e-9 * full.TotalCostPerPeriod(), $"{label} f = {f}");
+            }
+
+            AssertScaleIsLinear(f);
+        }
+    }
+
+    private static void AssertSameExceptOrderCost(string label, ChainResult full, ChainResult cut)
+    {
+        for (int k = 0; k < 4; k++)
+        {
+            Assert.Equal(full.Orders[k], cut.Orders[k]);
+            Assert.Equal(full.OnHandPeriod[k], cut.OnHandPeriod[k]);
+            Assert.Equal(full.BacklogPeriod[k], cut.BacklogPeriod[k]);
+            Assert.True(full.HoldingCost[k] == cut.HoldingCost[k], $"{label} holding {k}");
+            Assert.True(full.CapitalCost[k] == cut.CapitalCost[k], $"{label} capital {k}");
+            Assert.True(full.ShortageCost[k] == cut.ShortageCost[k], $"{label} shortage {k}");
+        }
+    }
+
+    private static void AssertScaleIsLinear(double f)
+    {
+        var p = new CostParameters();
+        var full = BaseCostModel.OrderCost(p);
+        var cut = BaseCostModel.OrderCost(p with { OrderCostScale = f * p.OrderCostScale });
+        for (int k = 0; k < 4; k++)
+        {
+            Assert.True(Math.Abs(cut[k] - f * full[k]) <= 1e-12 * f * full[k], $"stage {k} f = {f}");
         }
     }
 
