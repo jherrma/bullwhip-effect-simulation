@@ -5,7 +5,7 @@ namespace KSweep;
 /// <summary>Registry of the countermeasure variants that the <c>countermeasure</c> mode can run.</summary>
 public static class Countermeasures
 {
-    private static readonly string[] KnownIds = { "base", "lt", "lt-dose", "is-f", "is-m", "is", "is-lt", "is-lt-parts" };
+    private static readonly string[] KnownIds = { "base", "lt", "lt-dose", "is-f", "is-m", "is", "is-lt", "is-lt-parts", "maw" };
 
     /// <summary>The variants compared with the base for the countermeasure <paramref name="id"/>.</summary>
     public static IReadOnlyList<Variant> For(string id)
@@ -20,6 +20,7 @@ public static class Countermeasures
             "is" => new[] { IsF, IsM },
             "is-lt" => new[] { IsLt },
             "is-lt-parts" => new[] { IsF, LeadTime(0), IsLt },
+            "maw" => new[] { 12, 16, 24, 32 }.Select(MovingAverage).ToArray(),
             _ => throw new ArgumentException($"Unknown countermeasure id '{id}'. Known ids: {string.Join(", ", KnownIds)}.", nameof(id)),
         };
     }
@@ -45,6 +46,8 @@ public static class Countermeasures
         InfoSharing = true,
         LagPmfPerStage = Enumerable.Repeat(0, 4).Select(_ => LagPmfForQ(0)).ToArray(),
     };
+
+    private static Variant MovingAverage(int p) => new() { Name = $"ma p={p}", ForecastWindow = p, SigmaWindow = 8 };
 
     private static Variant LeadTime(double q) => new()
     {

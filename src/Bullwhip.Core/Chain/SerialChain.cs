@@ -34,8 +34,8 @@ namespace Bullwhip.Core.Chain;
 /// demand under info sharing, or on the incoming demand when <see cref="ChainConfig.InfoSharingSigmaFromIncomingOrders"/> is set.
 /// </para>
 /// <para>
-/// σ̂ (<see cref="SafetySource.EstimatedError"/>) is the RMS of the last p order-time errors (<see cref="ErrorWindow"/>; p
-/// samples at every R, spanning p·R periods). Every sample is the error of an actual order, so E[σ̂²] = σ_e²; per-period
+/// σ̂ (<see cref="SafetySource.EstimatedError"/>) is the RMS of the last w order-time errors (<see cref="ErrorWindow"/>; w =
+/// <see cref="ChainConfig.SigmaWindow"/> or, if null, the forecast window p; w samples at every R, spanning w·R periods). Every sample is the error of an actual order, so E[σ̂²] = σ_e²; per-period
 /// errors would not be, because upstream their window holds a phase-dependent lump count and consecutive ones share Lp − 1
 /// periods and μ̂. The RMS itself has the Jensen bias of GateA.RmsMeanFactor. Chen et al. (2000) Eq. (3) and the NRL
 /// estimator (Eq. 5, p. 273) use the one-period error e_t = D_t − μ̂ of order time t − 1 instead (Chen's order at the start
@@ -78,6 +78,7 @@ public static class SerialChain
         ValidateStagesAndOrdering(cfg);
         ValidateLeadTimes(cfg);
         ValidateInfoSharingSigma(cfg);
+        ValidateSigmaWindow(cfg);
         if (!(cfg.ShortageEscalation >= 0.0))
         {
             throw new ArgumentException("ChainConfig.ShortageEscalation (κ) must be ≥ 0.");
@@ -100,6 +101,20 @@ public static class SerialChain
         if (cfg.Safety != SafetySource.EstimatedError || cfg.ConstantMean != null)
         {
             throw new ArgumentException("ChainConfig.InfoSharingSigmaFromIncomingOrders needs Safety = EstimatedError and no ConstantMean.");
+        }
+    }
+
+    /// <summary>SigmaWindow must be at least 1 and only applies to the estimated-error σ̂ with a free μ̂ (else it is a silent no-op or a different estimator).</summary>
+    private static void ValidateSigmaWindow(ChainConfig cfg)
+    {
+        if (cfg.SigmaWindow is int w && w < 1)
+        {
+            throw new ArgumentException("ChainConfig.SigmaWindow must be at least 1.");
+        }
+
+        if (cfg.SigmaWindow is not null && (cfg.Safety != SafetySource.EstimatedError || cfg.ConstantMean != null))
+        {
+            throw new ArgumentException("ChainConfig.SigmaWindow needs Safety = EstimatedError and no ConstantMean.");
         }
     }
 
@@ -336,7 +351,7 @@ public static class SerialChain
             _plan = Enumerable.Range(0, n).Select(k => PlanStage(cfg, k, _phases, _fixedLead[k], rule)).ToArray();
 
             _forecast = Enumerable.Range(0, n).Select(_ => new StageForecast(_p, _r)).ToArray();
-            _errorWindow = Enumerable.Range(0, n).Select(_ => new ErrorWindow(_p)).ToArray();
+            _errorWindow = Enumerable.Range(0, n).Select(_ => new ErrorWindow(cfg.SigmaWindow ?? _p)).ToArray();
             _absErrorEwma = cfg.Safety == SafetySource.EwmaAbsError
                 ? Enumerable.Range(0, n).Select(_ => new AbsErrorEwma(cfg.AbsErrorSmoothing)).ToArray()
                 : null;

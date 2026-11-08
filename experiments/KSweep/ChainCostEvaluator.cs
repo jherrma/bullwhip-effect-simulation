@@ -29,7 +29,6 @@ public sealed class ChainCostEvaluator
 
         _settings = settings;
         Lags = new KaplanLeadTime(settings.LagPmf);
-        RequireWired(settings.Variant);
         if (settings.Variant.LagPmfPerStage is { } pmfs)
         {
             if (pmfs.Length != settings.Costs.Stages)
@@ -85,22 +84,6 @@ public sealed class ChainCostEvaluator
         return DemandPatterns.Generate(_settings.Pattern, p, length, rng);
     }
 
-    private static void RequireWired(Variant v)
-    {
-        if (v.SigmaWindow != null)
-        {
-            throw NotWired(nameof(Variant.SigmaWindow), "MAW-1");
-        }
-
-        if (v.ForecastWindow != null)
-        {
-            throw NotWired(nameof(Variant.ForecastWindow), "MAW-1");
-        }
-    }
-
-    private static NotSupportedException NotWired(string field, string story) =>
-        new($"Variant.{field} is not wired into the chain yet (story {story}).");
-
     private ChainConfig ChainConfigFor(CostParameters costs, int r, double[] z, int rep)
     {
         int n = costs.Stages;
@@ -143,7 +126,13 @@ public sealed class ChainCostEvaluator
     private ChainConfig ApplyVariant(ChainConfig config)
     {
         var v = _settings.Variant;
-        return config with { InfoSharing = v.InfoSharing, InfoSharingSigmaFromIncomingOrders = v.InfoSharingSigmaFromIncomingOrders };
+        return config with
+        {
+            InfoSharing = v.InfoSharing,
+            InfoSharingSigmaFromIncomingOrders = v.InfoSharingSigmaFromIncomingOrders,
+            SigmaWindow = v.SigmaWindow,
+            Window = v.ForecastWindow ?? config.Window,
+        };
     }
 }
 

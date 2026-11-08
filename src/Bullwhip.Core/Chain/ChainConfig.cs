@@ -67,6 +67,13 @@ public sealed record ChainConfig
     /// <summary>Moving-average window p (must be a multiple of R).</summary>
     public int Window { get; init; } = 8;
 
+    /// <summary>
+    /// Number of order-time errors in the RMS σ̂. Null: the forecast window p. Only with <c>Safety = EstimatedError</c> and
+    /// no <c>ConstantMean</c>; <c>Validate</c> rejects other combinations.
+    /// The Chen and NRL constants keep p, because they depend on the forecast.
+    /// </summary>
+    public int? SigmaWindow { get; init; }
+
     /// <summary>Order interval R.</summary>
     public int R { get; init; } = 1;
 
