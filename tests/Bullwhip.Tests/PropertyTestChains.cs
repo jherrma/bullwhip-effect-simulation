@@ -31,6 +31,8 @@ internal static class PropertyTestChains
         yield return ("fixedL3-R2-z1", Base(3, 2, null) with { Z = z });
         yield return ("kaplan-R4-perfect", Base(1.43, 4, Kaplan()) with { Z = z, PerfectSupplier = true });
         yield return ("kaplan-R1-infosharing", Base(1.43, 1, Kaplan()) with { Z = z, InfoSharing = true });
+        yield return ("kaplan-R4-infosharing", Base(1.43, 4, Kaplan()) with { Z = z, InfoSharing = true });
+        yield return ("kaplan-R4-infosharing-sigma-incoming", Base(1.43, 4, Kaplan()) with { Z = z, InfoSharing = true, InfoSharingSigmaFromIncomingOrders = true });
     }
 
     private static ChainConfig Base(double leadTime, int r, KaplanLeadTime[]? lag) => new()

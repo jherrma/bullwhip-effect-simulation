@@ -79,6 +79,13 @@ public sealed record ChainConfig
     /// <summary>If true, every stage forecasts from POS demand (Chen's centralised case).</summary>
     public bool InfoSharing { get; init; }
 
+    /// <summary>
+    /// Only with <see cref="InfoSharing"/>: μ̂ stays from POS demand, but σ̂ comes from the realised errors of the stage's
+    /// incoming demand over the decentralised window and cover (IS-M). False = σ̂ from POS errors (IS-F).
+    /// Also requires <c>Safety = EstimatedError</c> and no <c>ConstantMean</c>; <c>Validate</c> rejects other combinations.
+    /// </summary>
+    public bool InfoSharingSigmaFromIncomingOrders { get; init; }
+
     /// <summary>If true, upstream stages always fill shipments in full and arrivals come after exactly L_k (plan §3).</summary>
     public bool PerfectSupplier { get; init; }
 

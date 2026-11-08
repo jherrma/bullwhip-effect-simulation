@@ -30,8 +30,8 @@ namespace Bullwhip.Core.Chain;
 /// The window closes by the order time t0 + mR, m = ⌈Lp/R⌉, where the error is settled before σ̂ is read: one sample per
 /// order time. A non-integer Lp (Kaplan mean) uses (t0, t0 + ⌈Lp⌉] with the boundary weights of
 /// <see cref="ProtectionWindow"/>; a cover-rule option uses <see cref="CoverRules.Window"/>: the smooth cover of the option
-/// for POS input (retailer, info sharing), the lumpy one otherwise. The error is taken on the forecast input, which is POS
-/// demand under info sharing.
+/// for POS input (retailer, IS-F), the lumpy one otherwise. The error is taken on the forecast input, which is POS
+/// demand under info sharing, or on the incoming demand when <see cref="ChainConfig.InfoSharingSigmaFromIncomingOrders"/> is set.
 /// </para>
 /// <para>
 /// σ̂ (<see cref="SafetySource.EstimatedError"/>) is the RMS of the last p order-time errors (<see cref="ErrorWindow"/>; p
@@ -77,9 +77,29 @@ public static class SerialChain
     {
         ValidateStagesAndOrdering(cfg);
         ValidateLeadTimes(cfg);
+        ValidateInfoSharingSigma(cfg);
         if (!(cfg.ShortageEscalation >= 0.0))
         {
             throw new ArgumentException("ChainConfig.ShortageEscalation (κ) must be ≥ 0.");
+        }
+    }
+
+    /// <summary>The IS-M flag needs info sharing and the estimated-error σ̂ with a free μ̂ (else it is a no-op or an undefined estimator).</summary>
+    private static void ValidateInfoSharingSigma(ChainConfig cfg)
+    {
+        if (!cfg.InfoSharingSigmaFromIncomingOrders)
+        {
+            return;
+        }
+
+        if (!cfg.InfoSharing)
+        {
+            throw new ArgumentException("ChainConfig.InfoSharingSigmaFromIncomingOrders needs InfoSharing = true.");
+        }
+
+        if (cfg.Safety != SafetySource.EstimatedError || cfg.ConstantMean != null)
+        {
+            throw new ArgumentException("ChainConfig.InfoSharingSigmaFromIncomingOrders needs Safety = EstimatedError and no ConstantMean.");
         }
     }
 
@@ -198,17 +218,18 @@ public static class SerialChain
     /// </summary>
     private static StagePlan PlanStage(ChainConfig cfg, int k, int[] phases, int fixedLead, CoverRule rule)
     {
+        bool posError = cfg.InfoSharing && !cfg.InfoSharingSigmaFromIncomingOrders;
         int r = cfg.R;
         double lp = cfg.LeadTimes[k] + r - 1;
         int errorSpan = (int)Math.Ceiling(lp);
         if (UsesCoverRule(cfg, rule))
         {
-            // The error compares against the smooth cover of the option for POS input (retailer, info sharing), the lumpy
-            // one otherwise; KnownSigma scales by √(smooth cover).
+            // The error compares against the smooth cover of the option for POS input (retailer, IS-F), the lumpy one
+            // otherwise (including IS-M, whose error input is the incoming demand); KnownSigma scales by √(smooth cover).
             double[] pmf = CoverRules.LeadPmf(cfg.StochasticLeadTimes?[k], fixedLead);
             double smooth = CoverRules.Cover(rule, pmf, r, null);
             int? customerOffset = k > 0 ? PhaseTarget.Offset(r, phases[k], phases[k - 1]) : null;
-            bool lumpyInput = customerOffset != null && !cfg.InfoSharing;
+            bool lumpyInput = customerOffset != null && !posError;
             double ruleCover = customerOffset == null ? smooth : CoverRules.Cover(rule, pmf, r, customerOffset);
             double ruleErrorCover = lumpyInput ? ruleCover : smooth;
             double[] ruleWeights = CoverRules.Window(ruleErrorCover, r, lumpyInput ? customerOffset : null, errorSpan);
@@ -216,7 +237,7 @@ public static class SerialChain
         }
 
         double cover = k > 0 && r > 1 ? r * PhaseTarget.Lumps((int)lp, r, phases[k], phases[k - 1]) : lp;
-        double errorCover = cfg.InfoSharing ? lp : cover;
+        double errorCover = posError ? lp : cover;
         return new StagePlan(cover, errorCover, lp, ProtectionWindow.Weights(lp), SettleLag(errorSpan, r));
     }
 
@@ -242,7 +263,7 @@ public static class SerialChain
 
     /// <summary>Per-stage plan of the order-up-to level S = Cover·μ̂ + z·σ̂ and of the realised error window.</summary>
     /// <param name="Cover">Cover c of S, in periods of mean demand.</param>
-    /// <param name="ErrorCover">Cover of the realised error window: c for the stage's forecast input (Lp for POS input).</param>
+    /// <param name="ErrorCover">Cover of the realised error window: c for the stage's error input (its incoming demand); Lp for POS input (retailer, IS-F).</param>
     /// <param name="SigmaPeriods">Periods that scale KnownSigma (σ·√·) and the Chen/NRL constants.</param>
     /// <param name="ErrorWeights">Weights of the periods t0+1 … t0+H on the realised side of the error.</param>
     /// <param name="SettleLag">Lag from an order time t0 to the order time at which its error is settled (a multiple of R).</param>
@@ -271,6 +292,9 @@ public static class SerialChain
         private readonly AbsErrorEwma[]? _absErrorEwma;
         private readonly double[][] _forecastInput;
         private readonly double[][] _muHatAtOrder;
+
+        // The demand the realised error is taken on: the forecast input, or the incoming demand for IS-M.
+        private readonly double[][] _errorInput;
 
         // Inventory. _arrivals[k][t]: quantity arriving at stage k at the start of t. _onOrder: placed and not yet received
         // (includes what the supplier still owes); _inTransit: dispatched to the stage and not yet arrived (the physical pipeline).
@@ -328,6 +352,7 @@ public static class SerialChain
 
             _orders = PerStage(n, horizon, 0.0);
             _incoming = PerStage(n, horizon, 0.0);
+            _errorInput = cfg.InfoSharingSigmaFromIncomingOrders ? _incoming : _forecastInput;
             _shipPeriod = PerStage(n, horizon, 0.0);
             _onHandPeriod = PerStage(n, horizon, 0.0);
             _backlogPeriod = PerStage(n, horizon, 0.0);
@@ -573,7 +598,7 @@ public static class SerialChain
         private double? SettledError(int t, int k)
         {
             double[] muHat = _muHatAtOrder[k];
-            double[] input = _forecastInput[k];
+            double[] input = _errorInput[k];
             switch (_cfg.Safety)
             {
                 case SafetySource.EstimatedError:

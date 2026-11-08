@@ -5,7 +5,7 @@ namespace KSweep;
 /// <summary>Registry of the countermeasure variants that the <c>countermeasure</c> mode can run.</summary>
 public static class Countermeasures
 {
-    private static readonly string[] KnownIds = { "base", "lt", "lt-dose" };
+    private static readonly string[] KnownIds = { "base", "lt", "lt-dose", "is-f", "is-m", "is" };
 
     /// <summary>The variants compared with the base for the countermeasure <paramref name="id"/>.</summary>
     public static IReadOnlyList<Variant> For(string id)
@@ -15,6 +15,9 @@ public static class Countermeasures
             "base" => new[] { new Variant() },
             "lt" => new[] { LeadTime(0) },
             "lt-dose" => new[] { 0.30, 0.20, 0.10, 0 }.Select(LeadTime).ToArray(),
+            "is-f" => new[] { IsF },
+            "is-m" => new[] { IsM },
+            "is" => new[] { IsF, IsM },
             _ => throw new ArgumentException($"Unknown countermeasure id '{id}'. Known ids: {string.Join(", ", KnownIds)}.", nameof(id)),
         };
     }
@@ -29,6 +32,10 @@ public static class Countermeasures
 
         return q == 0 ? new[] { 1.0 } : new[] { 1 - q, q };
     }
+
+    private static readonly Variant IsF = new() { Name = "is-f", InfoSharing = true };
+
+    private static readonly Variant IsM = new() { Name = "is-m", InfoSharing = true, InfoSharingSigmaFromIncomingOrders = true };
 
     private static Variant LeadTime(double q) => new()
     {

@@ -87,16 +87,6 @@ public sealed class ChainCostEvaluator
 
     private static void RequireWired(Variant v)
     {
-        if (v.InfoSharing)
-        {
-            throw NotWired(nameof(Variant.InfoSharing), "IS-1");
-        }
-
-        if (v.InfoSharingSigmaFromIncomingOrders)
-        {
-            throw NotWired(nameof(Variant.InfoSharingSigmaFromIncomingOrders), "IS-3");
-        }
-
         if (v.SigmaWindow != null)
         {
             throw NotWired(nameof(Variant.SigmaWindow), "MAW-1");
@@ -152,7 +142,8 @@ public sealed class ChainCostEvaluator
 
     private ChainConfig ApplyVariant(ChainConfig config)
     {
-        return config;
+        var v = _settings.Variant;
+        return config with { InfoSharing = v.InfoSharing, InfoSharingSigmaFromIncomingOrders = v.InfoSharingSigmaFromIncomingOrders };
     }
 }
 

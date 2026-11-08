@@ -11,21 +11,31 @@ namespace Bullwhip.Tests;
 // The configurations use literal constants (not BaseCostModel) so that the hash does not depend on the cost-model code.
 public class FingerprintTests
 {
-    private const string Expected = "1A4BA4A4206B34B8EED2E61723A5D85F8CDACC5CF3DF3CB3D3C801723ADAA171";
+    internal const string Expected = "1A4BA4A4206B34B8EED2E61723A5D85F8CDACC5CF3DF3CB3D3C801723ADAA171";
+    internal const string ExpectedInfoSharing = "C8551D8708B19559C0430E258BC543121538C315DF0D7FB76A4D070FC79DEDCD";
     private const int Replications = 5;
     private const int Length = 2200;
 
     [Fact]
     public void FixedRuns_MatchStoredFingerprint()
     {
-        Assert.Equal(Expected, Fingerprint());
+        Assert.Equal(Expected, Fingerprint(c => c));
     }
 
-    private static string Fingerprint()
+    // Information sharing (IS-F, flag InfoSharing = true) on the same fixed configurations. Baseline D-5: computed once on the
+    // unchanged Core of step 3a, before IS-3 touches the same code. The base fingerprint above cannot see this path.
+    [Fact]
+    public void FixedRunsWithInfoSharing_MatchStoredFingerprint()
+    {
+        Assert.Equal(ExpectedInfoSharing, Fingerprint(c => c with { InfoSharing = true }));
+    }
+
+    internal static string Fingerprint(Func<ChainConfig, ChainConfig> map)
     {
         using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        foreach (var (_, cfg, stochastic) in FixedConfigs())
+        foreach (var (_, baseCfg, stochastic) in FixedConfigs())
         {
+            var cfg = map(baseCfg);
             for (int rep = 0; rep < Replications; rep++)
             {
                 var run = stochastic ? cfg with { LeadTimeSeed = GateA.LeadTimeSeed(rep) } : cfg;
