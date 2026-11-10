@@ -62,6 +62,13 @@ public sealed class OrderIntervalRunner
         return _cells.ToArray();
     }
 
+    /// <summary>Evaluates every cell at the fixed safety factors <paramref name="z"/>, without a search (structural companion run, C59), and returns them.</summary>
+    public IReadOnlyList<OrderIntervalCell> Grid(double[] z)
+    {
+        Evaluate(null, z);
+        return _cells.ToArray();
+    }
+
     /// <summary>Runs the study and reports each line through <paramref name="say"/>.</summary>
     public void Run(Action<string> say)
     {
@@ -127,14 +134,14 @@ public sealed class OrderIntervalRunner
     public static double? BreakEven(double a4, double b4, double aR, double bR) =>
         bR > b4 ? (a4 - aR) / (bR - b4) : null;
 
-    private void Evaluate(Action<OrderIntervalCell>? onCell)
+    private void Evaluate(Action<OrderIntervalCell>? onCell, double[]? fixedZ = null)
     {
         _cells.Clear();
         foreach (double f in _k.Factors)
         {
             foreach (int r in _k.Intervals)
             {
-                var cell = Cell(f, r);
+                var cell = Cell(f, r, fixedZ);
                 _cells.Add(cell);
                 onCell?.Invoke(cell);
             }
@@ -143,10 +150,13 @@ public sealed class OrderIntervalRunner
 
     private CostParameters CostsFor(double f) => _s.Costs with { OrderCostScale = f * _scale };
 
-    private OrderIntervalCell Cell(double f, int r)
+    // fixedZ = null: z from the coordinate search on the training replications; otherwise fixedZ in every cell.
+    private OrderIntervalCell Cell(double f, int r, double[]? fixedZ)
     {
         var costs = CostsFor(f);
-        var z = _search.Optimize(costs, r, SafetyFactorSearch.Uniform(costs.Stages, 1.0), _s.Passes);
+        var z = fixedZ != null
+            ? (double[])fixedZ.Clone()
+            : _search.Optimize(costs, r, SafetyFactorSearch.Uniform(costs.Stages, 1.0), _s.Passes);
         var kpi = KpiSample.Collect(_evaluator, costs, r, z, _s.TestFirst, _s.TestReps);
         return new OrderIntervalCell(f, r, z, kpi);
     }

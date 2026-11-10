@@ -13,6 +13,7 @@ using KSweep;
 //        dotnet run -c Release --project experiments/KSweep -- base-kpi [output-file]      (DECISIONS C44)
 //        dotnet run -c Release --project experiments/KSweep -- countermeasure <id> [output-file]
 //        dotnet run -c Release --project experiments/KSweep -- countermeasure-smoke <id> [output-file]   (plumbing check only, 2 + 3 replications)
+//        dotnet run -c Release --project experiments/KSweep -- countermeasure-structural <id> [output-file]   (DECISIONS C59, C67, C68: sigma = 0, z = 0; ids lt, lt-dose, ri)
 //        gate-b-bme, upstream-bme, larger-beta-bme: the same studies at the BME base case (factor 6331/2400, DECISIONS C39).
 
 CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
@@ -27,8 +28,8 @@ void Say(string line)
 string raw = args.Length > 0 ? args[0] : "";
 string baseName = raw.EndsWith("-bme", StringComparison.Ordinal) ? raw[..^4] : raw;
 bool bme = baseName != raw && baseName is "gate-b" or "upstream" or "larger-beta";
-string mode = bme ? baseName : raw is "gate-b" or "upstream" or "larger-beta" or "single-stage" or "base-kpi" or "countermeasure" or "countermeasure-smoke" or "k-factor" or "k-bme-neg" or "gate-b-base" or "gate-b-base-neg" or "k-base" or "k-base-neg" ? raw : "k-sweep";
-string? output = args.Skip(mode == "k-sweep" ? 0 : mode is "k-factor" or "countermeasure" or "countermeasure-smoke" ? 2 : 1).FirstOrDefault();
+string mode = bme ? baseName : raw is "gate-b" or "upstream" or "larger-beta" or "single-stage" or "base-kpi" or "countermeasure" or "countermeasure-smoke" or "countermeasure-structural" or "k-factor" or "k-bme-neg" or "gate-b-base" or "gate-b-base-neg" or "k-base" or "k-base-neg" ? raw : "k-sweep";
+string? output = args.Skip(mode == "k-sweep" ? 0 : mode is "k-factor" or "countermeasure" or "countermeasure-smoke" or "countermeasure-structural" ? 2 : 1).FirstOrDefault();
 
 switch (mode)
 {
@@ -49,6 +50,9 @@ switch (mode)
         break;
     case "countermeasure-smoke":
         RunCountermeasure(args[1], SmokeSweep());
+        break;
+    case "countermeasure-structural":
+        new StructuralCompanionRunner(BaseSweep(neg: false)).Run(args[1], Say);
         break;
     case "k-factor":
         KFactorStudy.Run(double.Parse(args[1], CultureInfo.InvariantCulture), Say);
