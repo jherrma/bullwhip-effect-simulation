@@ -11,6 +11,7 @@ using KSweep;
 //        dotnet run -c Release --project experiments/KSweep -- single-stage [output-file]   (DECISIONS C33)
 //        dotnet run -c Release --project experiments/KSweep -- k-factor <scale> [output-file]   (DECISIONS C37)
 //        dotnet run -c Release --project experiments/KSweep -- base-kpi [output-file]      (DECISIONS C44)
+//        dotnet run -c Release --project experiments/KSweep -- ratio-scan <ratio> [output-file]   (k-base with shortage/holding ratio b/h₁ = <ratio> instead of 26)
 //        dotnet run -c Release --project experiments/KSweep -- countermeasure <id> [output-file]
 //        dotnet run -c Release --project experiments/KSweep -- countermeasure-smoke <id> [output-file]   (plumbing check only, 2 + 3 replications)
 //        dotnet run -c Release --project experiments/KSweep -- countermeasure-structural <id> [output-file]   (DECISIONS C59, C67, C68: sigma = 0, z = 0; ids lt, lt-dose, ri)
@@ -28,8 +29,8 @@ void Say(string line)
 string raw = args.Length > 0 ? args[0] : "";
 string baseName = raw.EndsWith("-bme", StringComparison.Ordinal) ? raw[..^4] : raw;
 bool bme = baseName != raw && baseName is "gate-b" or "upstream" or "larger-beta";
-string mode = bme ? baseName : raw is "gate-b" or "upstream" or "larger-beta" or "single-stage" or "base-kpi" or "countermeasure" or "countermeasure-smoke" or "countermeasure-structural" or "k-factor" or "k-bme-neg" or "gate-b-base" or "gate-b-base-neg" or "k-base" or "k-base-neg" ? raw : "k-sweep";
-string? output = args.Skip(mode == "k-sweep" ? 0 : mode is "k-factor" or "countermeasure" or "countermeasure-smoke" or "countermeasure-structural" ? 2 : 1).FirstOrDefault();
+string mode = bme ? baseName : raw is "gate-b" or "upstream" or "larger-beta" or "single-stage" or "base-kpi" or "countermeasure" or "countermeasure-smoke" or "countermeasure-structural" or "k-factor" or "k-bme-neg" or "gate-b-base" or "gate-b-base-neg" or "k-base" or "k-base-neg" or "ratio-scan" ? raw : "k-sweep";
+string? output = args.Skip(mode == "k-sweep" ? 0 : mode is "k-factor" or "countermeasure" or "countermeasure-smoke" or "countermeasure-structural" or "ratio-scan" ? 2 : 1).FirstOrDefault();
 
 switch (mode)
 {
@@ -71,6 +72,9 @@ switch (mode)
         break;
     case "k-base-neg":
         new KSweepRunner(BaseSweep(neg: true)).Run(Say);
+        break;
+    case "ratio-scan":
+        new KSweepRunner(RatioSweep(double.Parse(args[1], CultureInfo.InvariantCulture))).Run(Say);
         break;
     case "gate-b":
         new GateBRunner(GateBOnBase(new GateBSettings(), bme)).Run(Say);
@@ -118,6 +122,13 @@ static SweepSettings BaseSweep(bool neg) => new()
         ? Enumerable.Range(0, 49).Select(i => -4.0 + 0.25 * i).ToArray()
         : Enumerable.Range(0, 33).Select(i => 0.25 * i).ToArray(),
 };
+
+// The k-base sweep with the shortage/holding ratio b/h₁ set to the given value; everything else is BaseSweep(neg: false).
+static SweepSettings RatioSweep(double ratio)
+{
+    var sweep = BaseSweep(neg: false);
+    return sweep with { Costs = sweep.Costs with { ShortageToHoldingRatio = ratio } };
+}
 
 // Plumbing check of the countermeasure mode: replications 9000+, z = 1; the numbers are not valid results.
 static SweepSettings SmokeSweep() => BaseSweep(neg: false) with

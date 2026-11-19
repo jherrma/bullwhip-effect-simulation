@@ -20,7 +20,7 @@ internal static class PropertyTestChains
 
     private static KaplanLeadTime[] Kaplan() => Enumerable.Repeat(new KaplanLeadTime(BaseLeadTime.LagPmf()), 4).ToArray();
 
-    /// <summary>Named configurations: Kaplan and fixed lead times, R = 1 and R = 4, safety stock, a perfect supplier, shared POS.</summary>
+    /// <summary>Named configurations: Kaplan and fixed lead times, R = 1, 2, 4 and 8, safety stock, a perfect supplier, shared POS.</summary>
     public static IEnumerable<(string Name, ChainConfig Config)> Configs()
     {
         double[] z = { 1.0, 1.0, 1.0, 1.0 };
@@ -33,6 +33,7 @@ internal static class PropertyTestChains
         yield return ("kaplan-R1-infosharing", Base(BaseLeadTime.MeanLeadTime, 1, Kaplan()) with { Z = z, InfoSharing = true });
         yield return ("kaplan-R4-infosharing", Base(BaseLeadTime.MeanLeadTime, 4, Kaplan()) with { Z = z, InfoSharing = true });
         yield return ("kaplan-R4-infosharing-sigma-incoming", Base(BaseLeadTime.MeanLeadTime, 4, Kaplan()) with { Z = z, InfoSharing = true, InfoSharingSigmaFromIncomingOrders = true });
+        yield return ("kaplan-R8-z1", Base(BaseLeadTime.MeanLeadTime, 8, Kaplan()) with { Z = z });
     }
 
     private static ChainConfig Base(double leadTime, int r, KaplanLeadTime[]? lag) => new()

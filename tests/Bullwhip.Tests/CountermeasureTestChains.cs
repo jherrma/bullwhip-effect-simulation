@@ -55,17 +55,20 @@ internal static class CountermeasureTestChains
     }
 
     /// <summary>BR4 per stage (C44 method): per replication the variance ratio of non-overlapping 4-period sums, then mean and se over replications.</summary>
-    public static (double[] Mean, double[] Se) Br4PerStage(ChainConfig cfg, int reps)
+    public static (double[] Mean, double[] Se) Br4PerStage(ChainConfig cfg, int reps) => BlockRatioPerStage(cfg, reps, 4);
+
+    /// <summary>The C44 method with non-overlapping sums of <paramref name="block"/> periods (BR8 at R = 8: one order per sum).</summary>
+    public static (double[] Mean, double[] Se) BlockRatioPerStage(ChainConfig cfg, int reps, int block)
     {
         var ratios = Enumerable.Range(0, 4).Select(_ => new double[reps]).ToArray();
         for (int rep = 0; rep < reps; rep++)
         {
             var demand = GateA.Demand(rep, Warmup + Periods, Mu, 0, Sigma);
             var res = SerialChain.Run(cfg with { LeadTimeSeed = GateA.LeadTimeSeed(rep) }, demand);
-            double dVar = SumVariance(demand[Warmup..]);
+            double dVar = SumVariance(demand[Warmup..], block);
             for (int k = 0; k < 4; k++)
             {
-                ratios[k][rep] = SumVariance(res.Orders[k][Warmup..]) / dVar;
+                ratios[k][rep] = SumVariance(res.Orders[k][Warmup..], block) / dVar;
             }
         }
 
@@ -129,10 +132,10 @@ internal static class CountermeasureTestChains
         }
     }
 
-    private static double SumVariance(double[] x)
+    private static double SumVariance(double[] x, int block)
     {
-        int count = x.Length / 4;
-        var sums = Enumerable.Range(0, count).Select(b => x.Skip(b * 4).Take(4).Sum()).ToArray();
+        int count = x.Length / block;
+        var sums = Enumerable.Range(0, count).Select(b => x.Skip(b * block).Take(block).Sum()).ToArray();
         double mean = sums.Average();
         return sums.Sum(v => (v - mean) * (v - mean)) / (sums.Length - 1);
     }

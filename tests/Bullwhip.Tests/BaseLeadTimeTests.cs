@@ -116,6 +116,40 @@ public class BaseLeadTimeTests
         }
     }
 
+    [Fact]
+    public void Sampler_GivesVarianceAndCvOfTheBaseLeadTime()
+    {
+        // Var(L) = (0.30·2.43)² = 0.531441. Every dispatch has the exact lag marginal, so (L − 2.43)² is unbiased for Var(L);
+        // consecutive lags of one stream are correlated (no overtaking), so the standard error comes from 200 independent
+        // streams of 1000 dispatches. Per dispatch sd((L − 2.43)²) = 1.109, so iid draws would give se = 1.109/√200 000 =
+        // 0.0025; a separate simulation of the Kaplan sampler gives se ≈ 0.0032 for this design. Tolerance: 4 se, and se
+        // must stay below 0.005. CV(L) = √Var/2.43 with the delta-method se of se_Var/(2·√0.531441·2.43).
+        const int Streams = 200, Dispatches = 1000;
+        const double TargetVariance = 0.30 * 2.43 * 0.30 * 2.43;
+        var lag = new KaplanLeadTime(BaseLeadTime.LagPmf());
+        var perStream = new double[Streams];
+        for (int rep = 0; rep < Streams; rep++)
+        {
+            var due = lag.DrawArrivals(new SplitMix64(GateA.LeadTimeSeed(rep)), Dispatches - 1);
+            double squares = 0;
+            for (int s = 0; s < Dispatches; s++)
+            {
+                double deviation = due[s + lag.MaxLag + 1] - s - 2.43;
+                squares += deviation * deviation;
+            }
+
+            perStream[rep] = squares / Dispatches;
+        }
+
+        var (variance, se) = GateA.MeanAndSe(perStream);
+        double cv = Math.Sqrt(variance) / 2.43;
+        double cvSe = se / (2 * Math.Sqrt(TargetVariance) * 2.43);
+        _out.WriteLine($"sampled Var(L) = {variance:0.00000} ± {se:0.00000} (0.531441), CV(L) = {cv:0.00000} ± {cvSe:0.00000} (0.30)");
+        Assert.True(se < 0.005, $"se {se}");
+        Assert.InRange(variance, TargetVariance - 4 * se, TargetVariance + 4 * se);
+        Assert.InRange(cv, 0.30 - 4 * cvSe, 0.30 + 4 * cvSe);
+    }
+
     [Theory]
     [InlineData(0.10, 2.3743, 0.2852)]
     [InlineData(0.20, 2.3218, 0.2688)]
