@@ -5,7 +5,7 @@ using Xunit;
 
 namespace Bullwhip.Tests;
 
-// Enforces the structure rules in CLAUDE.md on every C# file under src/ and tests/:
+// Enforces the structure rules in CLAUDE.md on every C# file under src/, tests/ and experiments/:
 //   - a method, constructor, local function or accessor body has at most 50 lines (braces included);
 //   - a control-flow block is nested at most 4 levels deep inside its member.
 // Lambdas do not start a new count; they inherit the nesting of the member that contains them.
@@ -37,16 +37,44 @@ public class StructureRulesTests
         var longBody = "class C { void M() {\n" + string.Concat(Enumerable.Repeat("int x = 0;\n", 51)) + "} }";
         var deep = "class C { void M(bool a) { if (a) { if (a) { if (a) { if (a) { if (a) { } } } } } } }";
         var flatElseIf = "class C { void M(bool a) { if (a) { } else if (a) { } else if (a) { } else if (a) { } else if (a) { } } }";
+        // A braced else is one level deeper than its if: five ifs in a row, the first one in the else block, reach level 5.
+        var deepElse = "class C { void M(bool a) { if (a) { } else { if (a) { if (a) { if (a) { if (a) { } } } } } } }";
+        // Four levels, the innermost reached through a braced else: allowed.
+        var shallowElse = "class C { void M(bool a) { if (a) { } else { if (a) { if (a) { if (a) { } } } } } }";
+        // A deconstructing foreach is a control block: foreach plus four ifs is level 5.
+        var deconstructing = "class C { void M(int[][] xs) { foreach (var (a, b) in xs) { if (a > 0) { if (a > 0) { if (a > 0) { if (a > 0) { } } } } } } }";
 
         Assert.Single(CheckBodyLength("synthetic.cs", Parse(longBody)));
         Assert.Single(CheckNesting("synthetic.cs", Parse(deep)));
         Assert.Empty(CheckNesting("synthetic.cs", Parse(flatElseIf)));
+        Assert.Single(CheckNesting("synthetic.cs", Parse(deepElse)));
+        Assert.Empty(CheckNesting("synthetic.cs", Parse(shallowElse)));
+        Assert.Single(CheckNesting("synthetic.cs", Parse(deconstructing)));
+    }
+
+    [Fact]
+    public void Checker_BodyLimitIsExactlyFiftyLines()
+    {
+        // The body runs from the opening brace on its own line to the closing brace, both included.
+        string Body(int statements) =>
+            "class C { void M()\n{\n" + string.Concat(Enumerable.Repeat("int x = 0;\n", statements)) + "}\n}";
+
+        Assert.Empty(CheckBodyLength("synthetic.cs", Parse(Body(48))));
+        Assert.Single(CheckBodyLength("synthetic.cs", Parse(Body(49))));
+    }
+
+    [Fact]
+    public void Checker_ScansAtLeastOneFileOfEachFolder()
+    {
+        var files = SourceFiles().ToList();
+        Assert.Contains(files, f => f.Path.StartsWith("src" + Path.DirectorySeparatorChar, StringComparison.Ordinal));
+        Assert.Contains(files, f => f.Path.StartsWith("tests" + Path.DirectorySeparatorChar, StringComparison.Ordinal));
     }
 
     private static IEnumerable<(string Path, SyntaxNode Root)> SourceFiles()
     {
         var repo = FindRepoRoot();
-        foreach (var folder in new[] { "src", "tests" })
+        foreach (var folder in new[] { "src", "tests", "experiments" })
         {
             foreach (var file in Directory.EnumerateFiles(Path.Combine(repo, folder), "*.cs", SearchOption.AllDirectories))
             {
@@ -108,7 +136,7 @@ public class StructureRulesTests
     }
 
     // Counts the control blocks from the node up to its enclosing member, the node itself included.
-    // An else-if does not add a level: it sits at the same indentation as its if.
+    // An else-if does not add a level: it sits at the same indentation as its if. A braced else does (see IsElseBranch).
     private static int NestingLevel(SyntaxNode control)
     {
         var level = 1;
@@ -138,11 +166,12 @@ public class StructureRulesTests
         node is BaseMethodDeclarationSyntax or LocalFunctionStatementSyntax or AccessorDeclarationSyntax;
 
     private static bool IsControl(SyntaxNode node) => node is IfStatementSyntax or ForStatementSyntax
-        or ForEachStatementSyntax or WhileStatementSyntax or DoStatementSyntax or SwitchStatementSyntax
-        or TryStatementSyntax or UsingStatementSyntax or LockStatementSyntax;
+        or ForEachStatementSyntax or ForEachVariableStatementSyntax or WhileStatementSyntax or DoStatementSyntax
+        or SwitchStatementSyntax or TryStatementSyntax or UsingStatementSyntax or LockStatementSyntax;
 
+    // Only "else if" shares the level of its if. A braced else block is indented one level deeper.
     private static bool IsElseBranch(SyntaxNode parent, SyntaxNode child) =>
-        parent is IfStatementSyntax && child is ElseClauseSyntax;
+        parent is IfStatementSyntax && child is ElseClauseSyntax { Statement: IfStatementSyntax };
 
     private static string Describe(IReadOnlyCollection<string> violations) =>
         violations.Count == 0 ? string.Empty : string.Join(Environment.NewLine, violations);

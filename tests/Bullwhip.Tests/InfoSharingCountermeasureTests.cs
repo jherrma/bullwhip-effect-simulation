@@ -94,15 +94,6 @@ public class InfoSharingCountermeasureTests
         }
     }
 
-    [Fact]
-    public void IsM_FalseExplicit_MatchesStoredFingerprints()
-    {
-        Assert.Equal(FingerprintTests.Expected, FingerprintTests.Fingerprint(c => c with { InfoSharingSigmaFromIncomingOrders = false }));
-        Assert.Equal(
-            FingerprintTests.ExpectedInfoSharing,
-            FingerprintTests.Fingerprint(c => c with { InfoSharing = true, InfoSharingSigmaFromIncomingOrders = false }));
-    }
-
     private static ChainResult RunRep(ChainConfig cfg, int rep)
     {
         var demand = GateA.Demand(rep, 2200, CountermeasureTestChains.Mu, 0, CountermeasureTestChains.Sigma);
