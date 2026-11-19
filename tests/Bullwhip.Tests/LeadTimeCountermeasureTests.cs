@@ -124,8 +124,8 @@ public class LeadTimeCountermeasureTests
     public void MeanPipeline_IsMuTimesMeanTransit_AtLeadTimeTwoAndAtTheBase()
     {
         // Little's law: mean pipeline μ·(E[L] − 1), i.e. 100 at w = 1 (one week of transit) and 143 at the base.
-        Assert.All(MeanPipeline(1), v => Assert.InRange(v, 100 * 0.97, 100 * 1.03));
-        Assert.All(MeanPipeline(0), v => Assert.InRange(v, 143 * 0.97, 143 * 1.03));
+        Assert.All(MeanPipeline(1), v => Assert.InRange(v, 100 * 0.99, 100 * 1.01));
+        Assert.All(MeanPipeline(0), v => Assert.InRange(v, 143 * 0.99, 143 * 1.01));
     }
 
     private static double[] MeanPipeline(double w)

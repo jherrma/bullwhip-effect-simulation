@@ -12,6 +12,7 @@ using KSweep;
 //        dotnet run -c Release --project experiments/KSweep -- k-factor <scale> [output-file]   (DECISIONS C37)
 //        dotnet run -c Release --project experiments/KSweep -- base-kpi [output-file]      (DECISIONS C44)
 //        dotnet run -c Release --project experiments/KSweep -- ratio-scan <ratio> [output-file]   (k-base with shortage/holding ratio b/h₁ = <ratio> instead of 26)
+//        dotnet run -c Release --project experiments/KSweep -- r-grid-window <p> [output-file]   (DECISIONS C87: k-base at forecast window p, sigma-hat window 8, R = every divisor of p from 2 to p/2)
 //        dotnet run -c Release --project experiments/KSweep -- countermeasure <id> [output-file]
 //        dotnet run -c Release --project experiments/KSweep -- countermeasure-smoke <id> [output-file]   (plumbing check only, 2 + 3 replications)
 //        dotnet run -c Release --project experiments/KSweep -- countermeasure-structural <id> [output-file]   (DECISIONS C59, C67, C68: sigma = 0, z = 0; ids lt, lt-dose, ri)
@@ -29,8 +30,8 @@ void Say(string line)
 string raw = args.Length > 0 ? args[0] : "";
 string baseName = raw.EndsWith("-bme", StringComparison.Ordinal) ? raw[..^4] : raw;
 bool bme = baseName != raw && baseName is "gate-b" or "upstream" or "larger-beta";
-string mode = bme ? baseName : raw is "gate-b" or "upstream" or "larger-beta" or "single-stage" or "base-kpi" or "countermeasure" or "countermeasure-smoke" or "countermeasure-structural" or "k-factor" or "k-bme-neg" or "gate-b-base" or "gate-b-base-neg" or "k-base" or "k-base-neg" or "ratio-scan" ? raw : "k-sweep";
-string? output = args.Skip(mode == "k-sweep" ? 0 : mode is "k-factor" or "countermeasure" or "countermeasure-smoke" or "countermeasure-structural" or "ratio-scan" ? 2 : 1).FirstOrDefault();
+string mode = bme ? baseName : raw is "gate-b" or "upstream" or "larger-beta" or "single-stage" or "base-kpi" or "countermeasure" or "countermeasure-smoke" or "countermeasure-structural" or "k-factor" or "k-bme-neg" or "gate-b-base" or "gate-b-base-neg" or "k-base" or "k-base-neg" or "ratio-scan" or "r-grid-window" ? raw : "k-sweep";
+string? output = args.Skip(mode == "k-sweep" ? 0 : mode is "k-factor" or "countermeasure" or "countermeasure-smoke" or "countermeasure-structural" or "ratio-scan" or "r-grid-window" ? 2 : 1).FirstOrDefault();
 
 switch (mode)
 {
@@ -76,6 +77,9 @@ switch (mode)
     case "ratio-scan":
         new KSweepRunner(RatioSweep(double.Parse(args[1], CultureInfo.InvariantCulture))).Run(Say);
         break;
+    case "r-grid-window":
+        RunWindowGrid(int.Parse(args[1], CultureInfo.InvariantCulture));
+        break;
     case "gate-b":
         new GateBRunner(GateBOnBase(new GateBSettings(), bme)).Run(Say);
         break;
@@ -99,6 +103,14 @@ void RunCountermeasure(string id, SweepSettings sweep)
     }
 
     new CountermeasureRunner(sweep, Countermeasures.For(id)).Run(Say);
+}
+
+// C87: the k-base sweep at forecast window p, so that order intervals that do not divide p = 8 (for example R = 6) can run.
+void RunWindowGrid(int p)
+{
+    var sweep = WindowGridSweep(p);
+    Say($"Order-interval grid at forecast window p = {p} (DECISIONS C87); sigma-hat window {sweep.Variant.SigmaWindow} order times; R = {string.Join(", ", sweep.Intervals)}");
+    new KSweepRunner(sweep).Run(Say);
 }
 
 // The -bme modes use the BME order cost with β = 0 as recorded in C39 and C40; the β = 1 base case is not rerun here.
@@ -128,6 +140,23 @@ static SweepSettings RatioSweep(double ratio)
 {
     var sweep = BaseSweep(neg: false);
     return sweep with { Costs = sweep.Costs with { ShortageToHoldingRatio = ratio } };
+}
+
+// C87: BaseSweep(neg: false) with forecast window p and the sigma-hat window held at 8 order times (its base value at every R,
+// as in measure 04b); R runs through every divisor of p from 2 to p/2.
+static SweepSettings WindowGridSweep(int p)
+{
+    if (p < 4)
+    {
+        throw new ArgumentOutOfRangeException(nameof(p), p, "The forecast window p must be at least 4 so that the grid holds an R from 2 to p/2.");
+    }
+
+    return BaseSweep(neg: false) with
+    {
+        Window = p,
+        Intervals = Enumerable.Range(2, p / 2 - 1).Where(r => p % r == 0).ToArray(),
+        Variant = new Variant { Name = $"window p={p}", SigmaWindow = 8 },
+    };
 }
 
 // Plumbing check of the countermeasure mode: replications 9000+, z = 1; the numbers are not valid results.
