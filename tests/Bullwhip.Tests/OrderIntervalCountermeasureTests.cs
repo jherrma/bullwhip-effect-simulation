@@ -15,18 +15,17 @@ public class OrderIntervalCountermeasureTests
         _out = output;
     }
 
-    private static double[] Covers(int r) => r switch
-    {
-        1 => new[] { 1.43, 1.43, 1.43, 1.43 },
-        2 => new[] { 2.43, 2, 2, 2 },
-        _ => new[] { 4.43, 4, 4, 4 },
-    };
+    /// <summary>
+    /// Base-case covers (L in 2..5, E[L] = 2.43): retailer E[L] + R − 1; upstream E[L] at R = 1, 2 + 2·P(L ≥ 3) + 2·P(L = 5)
+    /// at R = 2 and 4 + 4·P(L = 5) at R = 4 (<see cref="CountermeasureTestChains.Covers"/>).
+    /// </summary>
+    private static double[] Covers(int r) => CountermeasureTestChains.Covers(0, r);
 
     private static double[] ExpectedBr4(int r) => r switch
     {
-        1 => new[] { 1.4214, 2.1092, 3.2504, 5.1701 },
-        2 => new[] { 1.7920, 3.1596, 5.8865, 11.4291 },
-        _ => new[] { 2.7208, 8.0925, 26.5187, 91.8450 },
+        1 => new[] { 1.7920, 3.5250, 7.4411, 16.5040 },
+        2 => new[] { 2.2252, 4.7485, 10.8798, 26.1454 },
+        _ => new[] { 3.2789, 10.1149, 34.1792, 121.6558 },
     };
 
     [Theory]
@@ -35,7 +34,7 @@ public class OrderIntervalCountermeasureTests
     [InlineData(4)]
     public void DecentralisedCovers_PerInterval(int r)
     {
-        var cfg = CountermeasureTestChains.BaseChain(0.43, r) with { LeadTimeSeed = GateA.LeadTimeSeed(0) };
+        var cfg = CountermeasureTestChains.BaseChain(0, r) with { LeadTimeSeed = GateA.LeadTimeSeed(0) };
         var demand = GateA.Demand(0, CountermeasureTestChains.Warmup + CountermeasureTestChains.Periods, CountermeasureTestChains.Mu, 0, CountermeasureTestChains.Sigma);
         var covers = SerialChain.Run(cfg, demand).CoverPeriods;
         var expected = Covers(r);
@@ -58,7 +57,7 @@ public class OrderIntervalCountermeasureTests
             Assert.InRange(refs[k], expected[k] - 5e-5, expected[k] + 5e-5);
         }
 
-        var sim = CountermeasureTestChains.Br4PerStage(CountermeasureTestChains.BaseChain(0.43, r), CountermeasureTestChains.Reps);
+        var sim = CountermeasureTestChains.Br4PerStage(CountermeasureTestChains.BaseChain(0, r), CountermeasureTestChains.Reps);
         CountermeasureTestChains.AssertClosedForm($"RI R={r}", refs, sim, _out);
     }
 }

@@ -225,4 +225,13 @@ public static class Report
     public static string F(double x) => x.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
 
     public static string Vector(double[] z) => "[" + string.Join(", ", z.Select(F)) + "]";
+
+    /// <summary>"CV(T) = …" of the transit time T = L − 1 (standard deviation over E[T]); "n/a" at zero transit.</summary>
+    public static string TransitCv(KaplanLeadTime lags)
+    {
+        string value = lags.MeanLag > 0
+            ? (Math.Sqrt(lags.LagVariance) / lags.MeanLag).ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+            : "n/a";
+        return $"CV(T) = {value}";
+    }
 }

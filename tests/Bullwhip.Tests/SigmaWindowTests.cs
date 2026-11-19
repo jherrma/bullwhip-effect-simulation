@@ -45,13 +45,42 @@ public class SigmaWindowTests
         SigmaWindow = sigmaWindow,
     };
 
-    private static double[] ShockDemand()
+    internal static double[] ShockDemand()
     {
         var demand = Enumerable.Repeat(100.0, 40).ToArray();
         demand[20] = 180;
         return demand;
     }
 
+    /// <summary>The order-time errors of the shock chain (L = 1, R = 1, cover 1, p = 8, prefilled at 100): e_t = D_t − μ̂_{t−1}.</summary>
+    /// <remarks>
+    /// μ̂ is 100 before t = 20, 110 for t = 20..27 (the shock 180 in the window) and 100 from t = 28, so e = 80 at t = 20,
+    /// −10 at t = 21..28 and 0 elsewhere (errors exist from t = 1).
+    /// </remarks>
+    internal static double ShockError(int t) => t == 20 ? 80 : t >= 21 && t <= 28 ? -10 : 0;
+
+    /// <summary>σ̂ at order time t: the RMS of the last w errors e_1 … e_t (fewer at the start), the hand rule of ErrorWindow.</summary>
+    internal static double ShockSigma(int t, int w)
+    {
+        int first = Math.Max(1, t - w + 1);
+        if (t < 1)
+        {
+            return 0;
+        }
+
+        double squares = 0;
+        for (int s = first; s <= t; s++)
+        {
+            squares += ShockError(s) * ShockError(s);
+        }
+
+        return Math.Sqrt(squares / (t - first + 1));
+    }
+
+    /// <remarks>
+    /// MeanSigmaHat is the mean of σ̂ over t = 0..39 (<see cref="ShockSigma"/>). w = 1: σ̂ = |e|, (80 + 8·10)/40 = 4. w = 8 and
+    /// w = 16: the RMS over the last 8 or 16 errors; the literals were recomputed by a separate script from the same rule.
+    /// </remarks>
     [Theory]
     [InlineData(1, 4.0)]
     [InlineData(8, 7.2498981753749066)]
@@ -65,9 +94,38 @@ public class SigmaWindowTests
         Assert.Equal(reference.Orders[0], res.Orders[0]);
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(8)]
+    [InlineData(16)]
+    public void SigmaWindow_MovesOrdersAtPositiveZ(int window)
+    {
+        // z = 1, unclipped: q_t = D_t + (S_t − S_{t−1}) with S_t = μ̂_t + σ̂_t, so the window enters the orders through the
+        // change in σ̂. Spot values w = 1: q(20) = 180 + 10 + 80 = 270, q(21) = 100 + (10 − 80) = 30, q(28) = 100 − 10 + 0 = 90,
+        // q(29) = 100 − 10 = 90. w = 8: q(20) = 190 + √(6400/8) = 218.2843.
+        var res = SerialChain.Run(ShockChain(window) with { Z = new double[] { 1 } }, ShockDemand());
+        double MuHat(int t) => t >= 20 && t <= 27 ? 110 : 100;
+        for (int t = 1; t < 40; t++)
+        {
+            double expected = ShockDemand()[t] + MuHat(t) - MuHat(t - 1) + ShockSigma(t, window) - ShockSigma(t - 1, window);
+            Assert.InRange(res.Orders[0][t], expected - 1e-9, expected + 1e-9);
+        }
+
+        if (window == 1)
+        {
+            Assert.Equal(new double[] { 100, 270, 30, 100 }, res.Orders[0][19..23]);
+            Assert.Equal(new double[] { 90, 90, 100 }, res.Orders[0][28..31]);
+        }
+
+        if (window == 8)
+        {
+            Assert.InRange(res.Orders[0][20], 218.2843 - 5e-5, 218.2843 + 5e-5);
+        }
+    }
+
     public static IEnumerable<object[]> OtherSafetyModes()
     {
-        var r1 = CountermeasureTestChains.BaseChain(0.43, 1);
+        var r1 = CountermeasureTestChains.BaseChain(0, 1);
         var r4 = CountermeasureTestChains.BaseChain();
         yield return new object[] { "chen-R1", r1 with { Safety = SafetySource.ChenOnePeriodError } };
         yield return new object[] { "ewma-R1", r1 with { Safety = SafetySource.EwmaAbsError, AbsErrorSmoothing = 2.0 / 9 } };
@@ -104,14 +162,14 @@ public class SigmaWindowTests
     }
 
     [Theory]
-    [InlineData(16, 1.7071, 2.9949, 5.5593, 10.7656)]
-    [InlineData(24, 1.4373, 2.0813, 3.1175, 4.8054)]
-    [InlineData(32, 1.3152, 1.7294, 2.3246, 3.1871)]
+    [InlineData(16, 1.9091, 3.4281, 6.5053, 12.8599)]
+    [InlineData(24, 1.5549, 2.2866, 3.4787, 5.4451)]
+    [InlineData(32, 1.3970, 1.8574, 2.5254, 3.5029)]
     public void LongerForecastWindow_ClosedFormBr4(int p, double b1, double b2, double b3, double b4)
     {
         var cfg = CountermeasureTestChains.BaseChain() with { Window = p, SigmaWindow = 8 };
         var sim = CountermeasureTestChains.Br4PerStage(cfg, CountermeasureTestChains.Reps);
-        var refs = CountermeasureTestChains.DecentralisedBr4(new[] { 4.43, 4, 4, 4 }, p);
+        var refs = CountermeasureTestChains.DecentralisedBr4(CountermeasureTestChains.Covers(0, 4), p);
         for (int k = 0; k < 4; k++)
         {
             Assert.InRange(refs[k], new[] { b1, b2, b3, b4 }[k] - 5e-4, new[] { b1, b2, b3, b4 }[k] + 5e-4);

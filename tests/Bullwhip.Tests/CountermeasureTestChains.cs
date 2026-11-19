@@ -14,13 +14,33 @@ internal static class CountermeasureTestChains
     public const double Mu = 100;
     public const double Sigma = 10;
 
-    /// <summary>Lag pmf of one link: {1} at q = 0, else {1 − q, q} (the rule of the harness helper LagPmfForQ).</summary>
-    public static double[] LagPmf(double q) => q == 0 ? new[] { 1.0 } : new[] { 1 - q, q };
+    /// <summary>
+    /// Lag pmf of one link at the dose w of countermeasure 02 (DECISIONS C75): <see cref="BaseLeadTime.LagPmf"/>, the base
+    /// distribution (L in 2..5, E[L] = 2.43) at w = 0 and the point mass at L = 2 at w = 1.
+    /// </summary>
+    public static double[] LagPmf(double w) => BaseLeadTime.LagPmf(w);
 
-    /// <summary>The four-stage base chain with Kaplan lags {1 − q, q} at every link, R = r, p = 8, z = 0, unclipped.</summary>
-    public static ChainConfig BaseChain(double q = 0.43, int r = 4)
+    /// <summary>
+    /// Expected covers of the four stages at dose w and interval r with equal order phases (customer offset a = R), from the
+    /// cycle-average rule written out: retailer E[L] + R − 1; upstream E[R·(⌊(L − 1)/R⌋ + 1)], the lumps of R periods that
+    /// a lead time L spans. For L in 2..5 that is L at R = 1, {2, 4, 4, 6} at R = 2 and {4, 4, 4, 8} at R = 4.
+    /// </summary>
+    public static double[] Covers(double w, int r)
     {
-        var lag = new KaplanLeadTime(LagPmf(q));
+        var lag = LagPmf(w);
+        double upstream = 0;
+        for (int transit = 0; transit < lag.Length; transit++)
+        {
+            upstream += lag[transit] * r * (transit / r + 1);
+        }
+
+        return new[] { new KaplanLeadTime(lag).MeanLeadTime + r - 1, upstream, upstream, upstream };
+    }
+
+    /// <summary>The four-stage base chain with Kaplan lags <see cref="LagPmf"/>(w) at every link, R = r, p = 8, z = 0, unclipped.</summary>
+    public static ChainConfig BaseChain(double w = 0, int r = 4)
+    {
+        var lag = new KaplanLeadTime(LagPmf(w));
         return new ChainConfig
         {
             LeadTimes = Enumerable.Repeat(lag.MeanLeadTime, 4).ToArray(),
@@ -35,17 +55,20 @@ internal static class CountermeasureTestChains
     }
 
     /// <summary>BR4 per stage (C44 method): per replication the variance ratio of non-overlapping 4-period sums, then mean and se over replications.</summary>
-    public static (double[] Mean, double[] Se) Br4PerStage(ChainConfig cfg, int reps)
+    public static (double[] Mean, double[] Se) Br4PerStage(ChainConfig cfg, int reps) => BlockRatioPerStage(cfg, reps, 4);
+
+    /// <summary>The C44 method with non-overlapping sums of <paramref name="block"/> periods (BR8 at R = 8: one order per sum).</summary>
+    public static (double[] Mean, double[] Se) BlockRatioPerStage(ChainConfig cfg, int reps, int block)
     {
         var ratios = Enumerable.Range(0, 4).Select(_ => new double[reps]).ToArray();
         for (int rep = 0; rep < reps; rep++)
         {
             var demand = GateA.Demand(rep, Warmup + Periods, Mu, 0, Sigma);
             var res = SerialChain.Run(cfg with { LeadTimeSeed = GateA.LeadTimeSeed(rep) }, demand);
-            double dVar = SumVariance(demand[Warmup..]);
+            double dVar = SumVariance(demand[Warmup..], block);
             for (int k = 0; k < 4; k++)
             {
-                ratios[k][rep] = SumVariance(res.Orders[k][Warmup..]) / dVar;
+                ratios[k][rep] = SumVariance(res.Orders[k][Warmup..], block) / dVar;
             }
         }
 
@@ -109,10 +132,10 @@ internal static class CountermeasureTestChains
         }
     }
 
-    private static double SumVariance(double[] x)
+    private static double SumVariance(double[] x, int block)
     {
-        int count = x.Length / 4;
-        var sums = Enumerable.Range(0, count).Select(b => x.Skip(b * 4).Take(4).Sum()).ToArray();
+        int count = x.Length / block;
+        var sums = Enumerable.Range(0, count).Select(b => x.Skip(b * block).Take(block).Sum()).ToArray();
         double mean = sums.Average();
         return sums.Sum(v => (v - mean) * (v - mean)) / (sums.Length - 1);
     }

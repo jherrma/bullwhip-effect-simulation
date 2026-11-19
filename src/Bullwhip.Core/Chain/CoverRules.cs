@@ -20,7 +20,7 @@ namespace Bullwhip.Core.Chain;
 /// rule; (C) gives R·⌈L/R⌉, which is not the integer rule (L = 2, R = 4: 4 instead of 5).
 /// (A) WorstPhase: c = max_u E[exposure_u] (smooth X, lumpy R·N with the stage's own a). E[NS | u] ≥ z·σ̂ at every phase,
 ///     equal at the worst one. Smooth input: the worst phase of a fixed L is u = (L − 2) mod R, which moves with L, so random
-///     L smooths E[X_u] over u and c lies between E[X] and E[L] + R − 1 (base lag: 7.998 against 7.9 and 9.4). Lumpy input: the
+///     L smooths E[X_u] over u and c lies between E[X] and E[L] + R − 1. Lumpy input: the
 ///     worst phase is u = a − 1 (a lump has just landed) for every L, and there R·N = n·R(L), so (A) = (B) exactly.
 /// (B) CycleAverage: c = E_L[c_int(L)] with c_int(L) = L + R − 1 (smooth) or R·(⌊(L + R − 1 − a)/R⌋ + 1) (lumpy, n·R at that L).
 ///     Smooth: c = E[L] + R − 1 = E[X] + (R − 1)/2. Lumpy: c = E[L] + R − a + E[(a − L) mod R]. Time-average E[NS] = z·σ̂ +
@@ -144,7 +144,7 @@ public static class CoverRules
         int first;
         if (customerOffset is int a)
         {
-            w = ProtectionWindow.Weights(cover / r);
+            w = ProtectionWindow.Weights(SnapToWholeLumps(cover / r));
             step = r;
             first = a - 1;
         }
@@ -163,6 +163,16 @@ public static class CoverRules
         }
 
         return full;
+    }
+
+    /// <summary>
+    /// A lump count within 1e-9 of an integer is that integer. Covers are sums of pmf × integer, and the pmf sums to
+    /// 1 − 1.1e-16 in floating point, so a cover of exactly R lumps can come out as R·(1 − 1e-16).
+    /// </summary>
+    private static double SnapToWholeLumps(double lumps)
+    {
+        double nearest = Math.Round(lumps);
+        return Math.Abs(lumps - nearest) < 1e-9 ? nearest : lumps;
     }
 
     private static int X(int l, int u, int r) => l + ((((u + 1 - l) % r) + r) % r);

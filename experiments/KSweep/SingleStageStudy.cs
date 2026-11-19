@@ -29,7 +29,10 @@ public sealed record SingleStageStudySettings
     /// <summary>Shortage-to-holding ratios b/h₁ (critical ratios 0.5, 0.667, 0.9).</summary>
     public double[] Ratios { get; init; } = { 1, 2, 9 };
 
-    /// <summary>B1 the base-case Kaplan lead time; B2 and B3 deterministic controls (one-point lag pmf).</summary>
+    /// <summary>
+    /// The pre-registered arms of C33: B1 a Kaplan lead time with L in {1, 2} (E[L] = 1.43, not the base-case distribution
+    /// of <see cref="Bullwhip.Core.Chain.BaseLeadTime"/>); B2 and B3 deterministic controls (one-point lag pmf).
+    /// </summary>
     public LeadTimeArm[] Arms { get; init; } =
     {
         new("B1 Kaplan, L in {1, 2} with P = {0.57, 0.43}", new[] { 0.57, 0.43 }),

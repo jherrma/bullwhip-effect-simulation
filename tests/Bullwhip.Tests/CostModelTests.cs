@@ -115,7 +115,7 @@ public class CostModelTests
     [Fact]
     public void ChainCosts_MatchComponentRatesAndOrderCountTimesK()
     {
-        var kaplan = new KaplanLeadTime(new[] { 0.57, 0.43 });
+        var kaplan = new KaplanLeadTime(BaseLeadTime.LagPmf());
         var cfg = new ChainConfig
         {
             LeadTimes = Enumerable.Repeat(kaplan.MeanLeadTime, 4).ToArray(),
@@ -148,7 +148,7 @@ public class CostModelTests
     [Fact]
     public void ChainCosts_NullOrderCostChargesNothing()
     {
-        var kaplan = new KaplanLeadTime(new[] { 0.57, 0.43 });
+        var kaplan = new KaplanLeadTime(BaseLeadTime.LagPmf());
         var cfg = new ChainConfig
         {
             LeadTimes = Enumerable.Repeat(kaplan.MeanLeadTime, 4).ToArray(),
