@@ -5,7 +5,7 @@ using Xunit.Abstractions;
 
 namespace Bullwhip.Tests;
 
-/// <summary>Combination of information sharing (IS-F) and q = 0 (lead time 1 at every link) against the closed forms (story COMB-2).</summary>
+/// <summary>Combination of information sharing (IS-F) and the dose w = 1 (lead time 2 at every link) against the closed forms (story COMB-2).</summary>
 public class CombinationCountermeasureTests
 {
     private static readonly double[] BaseZ = { 2.5, 1.25, 1.25, 1.25 };
@@ -16,9 +16,9 @@ public class CombinationCountermeasureTests
         _out = output;
     }
 
-    private static ChainConfig IsAtQ0(bool clipped = false)
+    private static ChainConfig IsAtW1(bool clipped = false)
     {
-        var cfg = CountermeasureTestChains.BaseChain(0) with { InfoSharing = true };
+        var cfg = CountermeasureTestChains.BaseChain(1) with { InfoSharing = true };
         return clipped ? cfg with { Z = BaseZ, AllowNegativeOrders = false } : cfg;
     }
 
@@ -29,26 +29,27 @@ public class CombinationCountermeasureTests
     }
 
     [Fact]
-    public void InfoSharingAtLeadTimeOne_ClosedFormBr4()
+    public void InfoSharingAtLeadTimeTwo_ClosedFormBr4()
     {
-        var sim = CountermeasureTestChains.Br4PerStage(IsAtQ0(), CountermeasureTestChains.Reps);
-        CountermeasureTestChains.AssertClosedForm("IS-F q=0", CountermeasureTestChains.InfoSharingBr4(new double[] { 4, 4, 4, 4 }, 8), sim, _out);
+        var sim = CountermeasureTestChains.Br4PerStage(IsAtW1(), CountermeasureTestChains.Reps);
+        CountermeasureTestChains.AssertClosedForm("IS-F w=1", CountermeasureTestChains.InfoSharingBr4(new double[] { 5, 4, 4, 4 }, 8), sim, _out);
     }
 
     [Fact]
-    public void InfoSharingAtLeadTimeOne_CoversAreFour()
+    public void InfoSharingAtLeadTimeTwo_CoversAreFiveAndFour()
     {
-        Assert.Equal(new double[] { 4, 4, 4, 4 }, RunRep(IsAtQ0(), 0).CoverPeriods);
+        // L = 2, R = 4: retailer L + R − 1 = 5; upstream one lump of 4 periods.
+        Assert.Equal(new double[] { 5, 4, 4, 4 }, RunRep(IsAtW1(), 0).CoverPeriods);
     }
 
     [Fact]
-    public void InfoSharingAtLeadTimeOne_ErrorRmsIsEqualAcrossStagesAndSigmaRootSix()
+    public void InfoSharingAtLeadTimeTwo_ErrorRmsIsEqualAcrossStagesAndPosLevel()
     {
         const int reps = 50;
         double sum = 0;
         for (int rep = 0; rep < reps; rep++)
         {
-            var rms = RunRep(IsAtQ0(true), rep).ProtectionErrorRms;
+            var rms = RunRep(IsAtW1(true), rep).ProtectionErrorRms;
             for (int k = 1; k < 4; k++)
             {
                 Assert.Equal(rms[0], rms[k]);
@@ -58,15 +59,16 @@ public class CombinationCountermeasureTests
         }
 
         double pooled = Math.Sqrt(sum / reps);
-        _out.WriteLine($"pooled error rms = {pooled:0.000} (expected 24.495)");
-        Assert.InRange(pooled, 24.495 * 0.98, 24.495 * 1.02);
+        // POS error over Lp = L + R − 1 = 5 periods: σ·√(Lp + Lp²/p) = 10·√(5 + 25/8) = 28.504.
+        _out.WriteLine($"pooled error rms = {pooled:0.000} (expected 28.504)");
+        Assert.InRange(pooled, 28.504 * 0.98, 28.504 * 1.02);
     }
 
     [Fact]
-    public void InfoSharingAtLeadTimeOne_EqualsDeterministicLeadTimeOne()
+    public void InfoSharingAtLeadTimeTwo_EqualsDeterministicLeadTimeTwo()
     {
-        var kaplan = IsAtQ0(true);
-        var deterministic = kaplan with { LeadTimes = new double[] { 1, 1, 1, 1 }, StochasticLeadTimes = null };
+        var kaplan = IsAtW1(true);
+        var deterministic = kaplan with { LeadTimes = new double[] { 2, 2, 2, 2 }, StochasticLeadTimes = null };
         for (int rep = 0; rep < 5; rep++)
         {
             var a = RunRep(kaplan, rep);

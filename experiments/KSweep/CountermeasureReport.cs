@@ -1,3 +1,4 @@
+using Bullwhip.Core.Chain;
 using Bullwhip.Core.Costs;
 
 namespace KSweep;
@@ -13,27 +14,31 @@ public static class Countermeasures
         return id switch
         {
             "base" => new[] { new Variant() },
-            "lt" => new[] { LeadTime(0) },
-            "lt-dose" => new[] { 0.30, 0.20, 0.10, 0 }.Select(LeadTime).ToArray(),
+            "lt" => new[] { LeadTime(1) },
+            "lt-dose" => new[] { 0.10, 0.20, 0.30, 1.00 }.Select(LeadTime).ToArray(),
             "is-f" => new[] { IsF },
             "is-m" => new[] { IsM },
             "is" => new[] { IsF, IsM },
             "is-lt" => new[] { IsLt },
-            "is-lt-parts" => new[] { IsF, LeadTime(0), IsLt },
+            "is-lt-parts" => new[] { IsF, LeadTime(1), IsLt },
             "maw" => new[] { 12, 16, 24, 32 }.Select(MovingAverage).ToArray(),
             _ => throw new ArgumentException($"Unknown countermeasure id '{id}'. Known ids: {string.Join(", ", KnownIds)}.", nameof(id)),
         };
     }
 
-    /// <summary>Lag pmf of one link: T = L − 1 is 1 with probability q, else 0 (at q = 0 a point mass, as KaplanLeadTime needs P(T = m) &gt; 0).</summary>
-    public static double[] LagPmfForQ(double q)
+    /// <summary>
+    /// Lag pmf of one link at the dose w of countermeasure 02 (<see cref="BaseLeadTime.LagPmf"/>): every hazard of the
+    /// transit time T = L − 1 from week 1 on rises to h + w·(1 − h). w = 0 is the base case (L in 2..5, E[L] = 2.43),
+    /// w = 1 the deterministic lead time L = 2.
+    /// </summary>
+    public static double[] LagPmfForW(double w)
     {
-        if (q < 0 || q > 1)
+        if (!(w >= 0 && w <= 1))
         {
-            throw new ArgumentOutOfRangeException(nameof(q), q, "q must be in [0, 1].");
+            throw new ArgumentOutOfRangeException(nameof(w), w, "w must be in [0, 1].");
         }
 
-        return q == 0 ? new[] { 1.0 } : new[] { 1 - q, q };
+        return BaseLeadTime.LagPmf(w);
     }
 
     private static readonly Variant IsF = new() { Name = "is-f", InfoSharing = true };
@@ -42,17 +47,25 @@ public static class Countermeasures
 
     private static readonly Variant IsLt = new()
     {
-        Name = "is-f + lt q=0",
+        Name = "is-f + lt w=1",
         InfoSharing = true,
-        LagPmfPerStage = Enumerable.Repeat(0, 4).Select(_ => LagPmfForQ(0)).ToArray(),
+        LagPmfPerStage = Enumerable.Repeat(0, 4).Select(_ => LagPmfForW(1)).ToArray(),
     };
 
+    /// <summary>
+    /// Countermeasure 04b: the forecast window grows to <paramref name="p"/>. The sigma-hat window is held at 8, the base
+    /// value, so the variant differs from the base case in the forecast window only.
+    /// </summary>
     private static Variant MovingAverage(int p) => new() { Name = $"ma p={p}", ForecastWindow = p, SigmaWindow = 8 };
 
-    private static Variant LeadTime(double q) => new()
+    /// <summary>
+    /// Countermeasure 02: every link gets the dose <paramref name="w"/> (<see cref="LagPmfForW"/>). Above w = 0 the lead
+    /// time is shorter on average and less variable; at w = 1 it is deterministic (L = 2).
+    /// </summary>
+    private static Variant LeadTime(double w) => new()
     {
-        Name = $"lt q={q.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}",
-        LagPmfPerStage = Enumerable.Repeat(0, 4).Select(_ => LagPmfForQ(q)).ToArray(),
+        Name = $"lt w={w.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}",
+        LagPmfPerStage = Enumerable.Repeat(0, 4).Select(_ => LagPmfForW(w)).ToArray(),
     };
 }
 
@@ -125,7 +138,7 @@ public sealed class CountermeasureRunner
     /// <summary>Interaction per replication: (comb − base) − (is − base) − (lt − base), each at its own z; paired CI.</summary>
     private void Interaction(KpiSample isF, KpiSample lt, KpiSample comb, KpiSample baseSample, Action<string> say)
     {
-        say("Interaction: (is-f + lt q=0) - is-f - lt q=0, relative to base (paired, same replication, each variant at its own z)");
+        say("Interaction: (is-f + lt w=1) - is-f - lt w=1, relative to base (paired, same replication, each variant at its own z)");
         say($"    TOTAL cost/week: {InteractionCi(isF, lt, comb, baseSample, "total")}");
         for (int k = 0; k < _costs.Stages; k++)
         {
@@ -167,7 +180,7 @@ public sealed class CountermeasureRunner
         var lags = ev.StageLags(n);
         for (int k = 0; k < n; k++)
         {
-            say($"  stage {k + 1}: E[L] = {Report.F(lags[k].MeanLeadTime)}, CV(L) = {(Math.Sqrt(lags[k].LagVariance) / lags[k].MeanLeadTime).ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}");
+            say($"  stage {k + 1}: E[L] = {Report.F(lags[k].MeanLeadTime)}, CV(L) = {(Math.Sqrt(lags[k].LagVariance) / lags[k].MeanLeadTime).ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}, {Report.TransitCv(lags[k])}");
         }
 
         for (int k = 0; k < n; k++)

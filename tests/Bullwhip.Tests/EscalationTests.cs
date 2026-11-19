@@ -10,8 +10,8 @@ public class EscalationTests
 {
     private static ChainConfig Config(double kappa, double[] backlogCost) => new()
     {
-        LeadTimes = Enumerable.Repeat(1.43, 4).ToArray(),
-        StochasticLeadTimes = Enumerable.Repeat(new KaplanLeadTime(new[] { 0.57, 0.43 }), 4).ToArray(),
+        LeadTimes = Enumerable.Repeat(BaseLeadTime.MeanLeadTime, 4).ToArray(),
+        StochasticLeadTimes = Enumerable.Repeat(new KaplanLeadTime(BaseLeadTime.LagPmf()), 4).ToArray(),
         LeadTimeSeed = GateA.LeadTimeSeed(0), R = 4, Z = new[] { 0.0, 0.0, 0.0, 0.0 },
         ShortageCost = backlogCost, ShortageEscalation = kappa, AllowNegativeOrders = false,
         InitialMean = 100, Warmup = 200, Window = 8,

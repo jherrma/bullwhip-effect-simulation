@@ -1,9 +1,14 @@
+using Bullwhip.Core.Chain;
 using Bullwhip.Core.Costs;
 using Bullwhip.Core.Demand;
 
 namespace KSweep;
 
-/// <summary>Settings of the held-out K sweep (DECISIONS C28). The defaults are the values used for the thesis.</summary>
+/// <summary>
+/// Settings of the held-out K sweep (DECISIONS C28). The defaults are the pre-registered C28 values: K scales around the
+/// calibration factor 1 and no upstream shortage cost (β = 0). They are not the base case of the thesis; the base case
+/// (BME factor 6331/2400, β = 1, DECISIONS C38, C41) is built in <c>Program.BaseSweep</c>.
+/// </summary>
 public sealed record SweepSettings
 {
     /// <summary>Warm-up periods, not measured.</summary>
@@ -54,8 +59,11 @@ public sealed record SweepSettings
     /// <summary>Order intervals R compared.</summary>
     public int[] Intervals { get; init; } = { 1, 2, 4, 8 };
 
-    /// <summary>Lead-time lag distribution: lag 0 with probability 0.57, lag 1 with 0.43 (lead time 1 or 2 weeks).</summary>
-    public double[] LagPmf { get; init; } = { 0.57, 0.43 };
+    /// <summary>
+    /// Lead-time lag distribution of the base case (<see cref="BaseLeadTime"/>): transit T = L − 1 of 1 to 4 weeks, so the
+    /// model lead time L is 2 to 5 weeks with E[L] = 2.43 and CV(L) = 0.30.
+    /// </summary>
+    public double[] LagPmf { get; init; } = BaseLeadTime.LagPmf();
 
     /// <summary>Base cost parameters (mean demand, rates, item values). <see cref="CostParameters.OrderCostScale"/> is set per run.</summary>
     public CostParameters Costs { get; init; } = new() { OrderCostScale = 1, UpstreamShortageMultiplier = 0 }; // factor 1, β = 0 as in C28–C40 (C38, C41)
@@ -113,7 +121,7 @@ public sealed class KSweepRunner
         var lags = _evaluator.Lags;
         say($"Value per stage: {string.Join(", ", BaseCostModel.StageValues(costs).Select(F))}");
         say($"Shortage cost b: {BaseCostModel.ShortageCost(costs):F4}; E[L] = {lags.MeanLeadTime:F2}; " +
-            $"lag CV(L) = {Math.Sqrt(lags.LagVariance) / lags.MeanLeadTime:F3}");
+            $"lag CV(L) = {Math.Sqrt(lags.LagVariance) / lags.MeanLeadTime:F3}; {Report.TransitCv(lags)}");
         say("");
         foreach (double scale in _settings.Scales)
         {

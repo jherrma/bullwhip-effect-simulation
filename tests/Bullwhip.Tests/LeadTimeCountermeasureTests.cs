@@ -6,7 +6,10 @@ using Xunit.Abstractions;
 
 namespace Bullwhip.Tests;
 
-/// <summary>Countermeasure 02 (shorter lead time): the lag pmf per stage as the only lever (stories LT-1, LT-2).</summary>
+/// <summary>
+/// Countermeasure 02 (shorter lead time): the lag pmf per stage as the only lever (stories LT-1, LT-2). The dose w raises
+/// the transit hazards (<see cref="BaseLeadTime"/>): w = 0 is the base case, w = 1 the deterministic lead time L = 2.
+/// </summary>
 public class LeadTimeCountermeasureTests
 {
     private static readonly double[] BaseZ = { 2.5, 1.25, 1.25, 1.25 };
@@ -17,11 +20,11 @@ public class LeadTimeCountermeasureTests
         _out = output;
     }
 
-    private static ChainConfig PointMassKaplan() => CountermeasureTestChains.BaseChain(0) with { Z = BaseZ, AllowNegativeOrders = false };
+    private static ChainConfig PointMassKaplan() => CountermeasureTestChains.BaseChain(1) with { Z = BaseZ, AllowNegativeOrders = false };
 
     private static ChainConfig Deterministic() => new()
     {
-        LeadTimes = new double[] { 1, 1, 1, 1 },
+        LeadTimes = new double[] { 2, 2, 2, 2 },
         R = 4,
         Window = 8,
         Z = BaseZ,
@@ -64,50 +67,53 @@ public class LeadTimeCountermeasureTests
     }
 
     [Fact]
-    public void PointMassLag_IsBitIdenticalToDeterministicLeadTimeOne() => AssertSameRuns(PointMassKaplan(), Deterministic());
+    public void PointMassLag_IsBitIdenticalToDeterministicLeadTimeTwo() => AssertSameRuns(PointMassKaplan(), Deterministic());
 
     [Fact]
-    public void ExplicitCycleAverage_IsBitIdenticalAtLeadTimeOne() =>
+    public void ExplicitCycleAverage_IsBitIdenticalAtLeadTimeTwo() =>
         AssertSameRuns(PointMassKaplan() with { Cover = CoverRule.CycleAverage }, PointMassKaplan());
 
     [Fact]
-    public void KaplanArrivals_AreMonotoneInQ()
+    public void KaplanArrivals_AreMonotoneInW()
     {
-        var qs = new[] { 0.10, 0.20, 0.30, 0.43 };
-        int[] Draw(double q) => new KaplanLeadTime(CountermeasureTestChains.LagPmf(q))
+        // A larger dose raises every hazard, so on the same uniforms no dispatch arrives later. The doses are listed from
+        // the largest to the base, so the lead times rise along the list. All four share the maximum lag 4.
+        var ws = new[] { 0.30, 0.20, 0.10, 0.0 };
+        int[] Draw(double w) => new KaplanLeadTime(CountermeasureTestChains.LagPmf(w))
             .DrawArrivals(new SplitMix64(GateA.LeadTimeSeed(7)), 2199);
-        for (int i = 0; i < qs.Length; i++)
+        for (int i = 0; i < ws.Length; i++)
         {
-            for (int j = i + 1; j < qs.Length; j++)
+            for (int j = i + 1; j < ws.Length; j++)
             {
-                var low = Draw(qs[i]);
-                var high = Draw(qs[j]);
+                var low = Draw(ws[i]);
+                var high = Draw(ws[j]);
                 Assert.Equal(low.Length, high.Length);
                 for (int s = 0; s < low.Length; s++)
                 {
-                    Assert.True(low[s] <= high[s], $"q {qs[i]} vs {qs[j]} at {s}");
+                    Assert.True(low[s] <= high[s], $"w {ws[i]} vs {ws[j]} at {s}");
                 }
             }
         }
 
-        var point = Draw(0);
+        // w = 1: maximum lag 1, element s + 2 is the dispatch of period s and arrives at s + 2 (L = 2).
+        var point = Draw(1);
         for (int s = 0; s < 2199; s++)
         {
-            Assert.Equal(s + 1, point[s + 1]);
+            Assert.Equal(s + 2, point[s + 2]);
         }
     }
 
     [Theory]
-    [InlineData(0.43)]
-    [InlineData(0.30)]
-    [InlineData(0.20)]
-    [InlineData(0.10)]
     [InlineData(0)]
-    public void Covers_AreFourPlusQ_AndFourUpstream(double q)
+    [InlineData(0.10)]
+    [InlineData(0.20)]
+    [InlineData(0.30)]
+    [InlineData(1)]
+    public void Covers_AreMeanLeadTimePlusThree_AndTheLumpCoverUpstream(double w)
     {
-        var cfg = CountermeasureTestChains.BaseChain(q) with { Z = BaseZ, AllowNegativeOrders = false, LeadTimeSeed = GateA.LeadTimeSeed(0) };
+        var cfg = CountermeasureTestChains.BaseChain(w) with { Z = BaseZ, AllowNegativeOrders = false, LeadTimeSeed = GateA.LeadTimeSeed(0) };
         var res = SerialChain.Run(cfg, GateA.Demand(0, 2200, CountermeasureTestChains.Mu, 0, CountermeasureTestChains.Sigma));
-        var expected = new[] { 4 + q, 4, 4, 4 };
+        var expected = CountermeasureTestChains.Covers(w, 4);
         for (int k = 0; k < 4; k++)
         {
             Assert.InRange(res.CoverPeriods[k], expected[k] - 1e-12, expected[k] + 1e-12);
@@ -115,39 +121,39 @@ public class LeadTimeCountermeasureTests
     }
 
     [Fact]
-    public void MeanPipeline_IsZeroAtLeadTimeOne_AndMuTimesQAtTheBase()
+    public void MeanPipeline_IsMuTimesMeanTransit_AtLeadTimeTwoAndAtTheBase()
     {
-        var zero = CountermeasureTestChains.BaseChain(0) with { Z = BaseZ, AllowNegativeOrders = false };
-        for (int rep = 0; rep < 5; rep++)
-        {
-            var res = SerialChain.Run(zero with { LeadTimeSeed = GateA.LeadTimeSeed(rep) }, GateA.Demand(rep, 2200, CountermeasureTestChains.Mu, 0, CountermeasureTestChains.Sigma));
-            Assert.All(res.MeanPipeline, v => Assert.InRange(Math.Abs(v), 0, 1e-9));
-        }
+        // Little's law: mean pipeline μ·(E[L] − 1), i.e. 100 at w = 1 (one week of transit) and 143 at the base.
+        Assert.All(MeanPipeline(1), v => Assert.InRange(v, 100 * 0.97, 100 * 1.03));
+        Assert.All(MeanPipeline(0), v => Assert.InRange(v, 143 * 0.97, 143 * 1.03));
+    }
 
-        var baseCfg = CountermeasureTestChains.BaseChain(0.43) with { Z = BaseZ, AllowNegativeOrders = false };
+    private static double[] MeanPipeline(double w)
+    {
+        var cfg = CountermeasureTestChains.BaseChain(w) with { Z = BaseZ, AllowNegativeOrders = false };
         var sums = new double[4];
         for (int rep = 0; rep < 100; rep++)
         {
-            var res = SerialChain.Run(baseCfg with { LeadTimeSeed = GateA.LeadTimeSeed(rep) }, GateA.Demand(rep, 2200, CountermeasureTestChains.Mu, 0, CountermeasureTestChains.Sigma));
+            var res = SerialChain.Run(cfg with { LeadTimeSeed = GateA.LeadTimeSeed(rep) }, GateA.Demand(rep, 2200, CountermeasureTestChains.Mu, 0, CountermeasureTestChains.Sigma));
             for (int k = 0; k < 4; k++)
             {
                 sums[k] += res.MeanPipeline[k] / 100;
             }
         }
 
-        Assert.All(sums, v => Assert.InRange(v, 43 * 0.97, 43 * 1.03));
+        return sums;
     }
 
     [Fact]
-    public void ClosedFormBr4_LeadTimeOne() => ClosedForm(0);
+    public void ClosedFormBr4_LeadTimeTwo() => ClosedForm(1);
 
     [Fact]
-    public void ClosedFormBr4_QPointTwo() => ClosedForm(0.2);
+    public void ClosedFormBr4_WPointTwo() => ClosedForm(0.2);
 
-    private void ClosedForm(double q)
+    private void ClosedForm(double w)
     {
-        var refs = CountermeasureTestChains.DecentralisedBr4(new[] { 4 + q, 4, 4, 4 }, 8);
-        var sim = CountermeasureTestChains.Br4PerStage(CountermeasureTestChains.BaseChain(q), CountermeasureTestChains.Reps);
-        CountermeasureTestChains.AssertClosedForm($"LT q={q}", refs, sim, _out);
+        var refs = CountermeasureTestChains.DecentralisedBr4(CountermeasureTestChains.Covers(w, 4), 8);
+        var sim = CountermeasureTestChains.Br4PerStage(CountermeasureTestChains.BaseChain(w), CountermeasureTestChains.Reps);
+        CountermeasureTestChains.AssertClosedForm($"LT w={w}", refs, sim, _out);
     }
 }

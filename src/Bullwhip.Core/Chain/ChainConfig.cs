@@ -59,7 +59,7 @@ public sealed record ChainConfig
     /// <summary>
     /// Planning lead time L_k per stage; S covers Lp = L_k + R − 1 periods of mean demand. Deterministic arrivals
     /// (<see cref="StochasticLeadTimes"/> null): an integer, the physical lead time. Kaplan mode: E[L_k] of the lag
-    /// distribution, which may be non-integer (the base case E[L] = 6.4); at R &gt; 1 a non-integer one uses a cover rule,
+    /// distribution, which may be non-integer (the base case E[L] = 2.43, <see cref="BaseLeadTime"/>); at R &gt; 1 a non-integer one uses a cover rule,
     /// by default CycleAverage (<see cref="Cover"/>).
     /// </summary>
     public required double[] LeadTimes { get; init; }
@@ -131,7 +131,7 @@ public sealed record ChainConfig
     /// <summary>
     /// Backlog cost b_k per unit-period at stage k, charged on the stage's backlog in the measurement window (one entry per
     /// stage). Null: zero at every stage. The base values are derived in <see cref="Costs.BaseCostModel.ShortageCostPerStage"/>
-    /// (retailer b = 9·h₁, upstream stages a multiple of 9·h_k; zero upstream is the base case).
+    /// (retailer b = 26·h₁, upstream stages b_k = β·26·h_k; β = 1 is the base case).
     /// </summary>
     public double[]? ShortageCost { get; init; }
 
@@ -162,7 +162,7 @@ public sealed record ChainConfig
     /// <summary>
     /// Cover rule at R &gt; 1 (<see cref="CoverRules"/>). Default null: <see cref="CoverRule.Integer"/> when every planning L is
     /// an integer, <see cref="CoverRule.CycleAverage"/> (B) for the whole chain when one is non-integer
-    /// (Kaplan mean, e.g. E[L] = 6.4). The options A, B, C compute c from the lag pmf (Kaplan mode) or a point mass at the
+    /// (Kaplan mean, e.g. E[L] = 2.43). The options A, B, C compute c from the lag pmf (Kaplan mode) or a point mass at the
     /// integer L (deterministic arrivals) and allow a non-integer planning L at R &gt; 1; Integer set explicitly does not.
     /// Ignored at R = 1.
     /// </summary>

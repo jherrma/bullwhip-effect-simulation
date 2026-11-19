@@ -11,8 +11,8 @@ namespace Bullwhip.Tests;
 // The configurations use literal constants (not BaseCostModel) so that the hash does not depend on the cost-model code.
 public class FingerprintTests
 {
-    internal const string Expected = "1A4BA4A4206B34B8EED2E61723A5D85F8CDACC5CF3DF3CB3D3C801723ADAA171";
-    internal const string ExpectedInfoSharing = "C8551D8708B19559C0430E258BC543121538C315DF0D7FB76A4D070FC79DEDCD";
+    internal const string Expected = "146A9F6D96B9FEDE573D41781C990383972DC70A3D897B9CDE5E3594C5EB1789";
+    internal const string ExpectedInfoSharing = "E58F8ECCE194197D8EDC9B077AECC980E9BF270B88B442AAC330C7BCE532A3D4";
     private const int Replications = 5;
     private const int Length = 2200;
 
@@ -57,7 +57,7 @@ public class FingerprintTests
 
     private static List<(string Name, ChainConfig Config, bool Stochastic)> FixedConfigs()
     {
-        var kaplan = new KaplanLeadTime(new[] { 0.57, 0.43 });
+        var kaplan = new KaplanLeadTime(BaseLeadTime.LagPmf());
         double[] value = Enumerable.Range(0, 4).Select(k => 30.0 * Math.Pow(10.0 / 30.0, k / 3.0)).ToArray();
         double[] holding = value.Select(v => 0.02 * v / 52).ToArray();
         double shortage = 9 * 0.10 * value[0] / 52;

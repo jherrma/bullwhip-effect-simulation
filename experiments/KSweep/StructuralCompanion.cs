@@ -112,7 +112,7 @@ public sealed class StructuralCompanionRunner
         var lags = ev.StageLags(n);
         for (int k = 0; k < n; k++)
         {
-            say($"  stage {k + 1}: E[L] = {Report.F(lags[k].MeanLeadTime)}, CV(L) = {(Math.Sqrt(lags[k].LagVariance) / lags[k].MeanLeadTime).ToString("F3", CultureInfo.InvariantCulture)}");
+            say($"  stage {k + 1}: E[L] = {Report.F(lags[k].MeanLeadTime)}, CV(L) = {(Math.Sqrt(lags[k].LagVariance) / lags[k].MeanLeadTime).ToString("F3", CultureInfo.InvariantCulture)}, {Report.TransitCv(lags[k])}");
         }
 
         CostLines("  ", key => Values(m, key), say);

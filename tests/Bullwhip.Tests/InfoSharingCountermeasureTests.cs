@@ -9,7 +9,7 @@ namespace Bullwhip.Tests;
 public class InfoSharingCountermeasureTests
 {
     private static readonly double[] BaseZ = { 2.5, 1.25, 1.25, 1.25 };
-    private static readonly double[] Covers = { 4.43, 4, 4, 4 };
+    private static readonly double[] Covers = CountermeasureTestChains.Covers(0, 4);
     private readonly ITestOutputHelper _out;
 
     public InfoSharingCountermeasureTests(ITestOutputHelper output)
@@ -73,7 +73,7 @@ public class InfoSharingCountermeasureTests
     [Fact]
     public void InfoSharingR4_ErrorRmsMatchesPosLevel()
     {
-        const double expected = 26.236; // 10 * sqrt(4.43 + 4.43^2 / 8)
+        const double expected = 30.192; // 10 * sqrt(5.43 + 5.43^2 / 8): POS error over the smooth cover E[L] + R − 1 = 5.43
         var sums = new double[4];
         const int reps = 50;
         for (int rep = 0; rep < reps; rep++)
@@ -148,7 +148,17 @@ public class InfoSharingCountermeasureTests
     [Fact]
     public void IsM_Stage2ErrorRms_MatchesClosedForm()
     {
-        const double expected = 38.856; // 20 * sqrt((1 + c1/8)^2 + 0.5^2 + (c1/8 + 0.5)^2), c1 = 4.43
+        // Stage 2 sees the retailer's lumps O(t) = (1 + g)·D(t−3..t) − g·D(t−11..t−8), g = c1/8, and forecasts c2·μ̂ from the
+        // POS demand of the 8 periods up to its order time t0. Its window weights the lumps at t0 + 4 and t0 + 8 with a1, a2
+        // (a1 + a2 = a1² + a2² = c2/4, ProtectionWindow). Four independent 4-period sums (sd 2σ = 20 each) remain:
+        // e = (1 + g)·(a1·A1 + a2·A2) − (a1·g + c2/8)·B1 − (a2·g + c2/8)·B2. Base case: c1 = 5.43, c2 = 4.0938, 42.851.
+        double g = Covers[0] / 8;
+        double lumps = Covers[1] / 4;
+        double root = Math.Sqrt(1 - (lumps - 1) * (lumps - 1));
+        double a1 = (lumps + root) / 2;
+        double a2 = (lumps - root) / 2;
+        double h = Covers[1] / 8;
+        double expected = 20 * Math.Sqrt((1 + g) * (1 + g) * lumps + (a1 * g + h) * (a1 * g + h) + (a2 * g + h) * (a2 * g + h));
         const int reps = 100;
         var cfg = CountermeasureTestChains.BaseChain() with { InfoSharing = true, InfoSharingSigmaFromIncomingOrders = true };
         double sum = 0;
@@ -173,7 +183,7 @@ public class InfoSharingCountermeasureTests
 
     public static IEnumerable<object[]> OtherSafetyModes()
     {
-        var r1 = CountermeasureTestChains.BaseChain(0.43, 1);
+        var r1 = CountermeasureTestChains.BaseChain(0, 1);
         var r4 = CountermeasureTestChains.BaseChain();
         yield return new object[] { "chen-R1", r1 with { Safety = SafetySource.ChenOnePeriodError } };
         yield return new object[] { "ewma-R1", r1 with { Safety = SafetySource.EwmaAbsError, AbsErrorSmoothing = 2.0 / 9 } };

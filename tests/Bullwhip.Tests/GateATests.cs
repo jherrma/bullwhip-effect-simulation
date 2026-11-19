@@ -326,6 +326,9 @@ public class GateATests
 
         var cfg = Four() with { Window = 400 };
         var (mean, _) = GateA.BullwhipPerStage(cfg, 10, 0, 20, 2000, 200);
+        // Coarse limit check only (BR → 1 for a long window; Chen Eq. (5) gives 1.01005 here, so 1.05 would also pass with
+        // Lp off by one). The two-sided check of the excess BR − 1 = 0.01005 with the Lp ± 1 counter-check is V7c
+        // (GateACloseoutTests.V7c_LongWindowExcessMatchesChen).
         _out.WriteLine($"V7 p=400 stage 1 BR = {mean[0]:0.0000}");
         Assert.True(mean[0] < 1.05);
     }
@@ -485,6 +488,9 @@ public class GateATests
     [Fact]
     public void V13_CostSide()
     {
+        // Coarse check: 20 replications, 2 % relative, no interval. The loss-function values are exact, so the strict
+        // version with 100 replications, two parameter sets and the Bonferroni interval over 4 points is V13b
+        // (GateACloseoutTests.V13b_CostSideTwoPointsBonferroni).
         var (bl, oh) = KnownSigmaRun();
         double sigmaE = 10 * Math.Sqrt(2 + 4.0 / 8);
         double k = 1.0 * 10 * Math.Sqrt(2) / sigmaE;

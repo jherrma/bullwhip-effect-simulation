@@ -67,7 +67,7 @@ public class SigmaWindowTests
 
     public static IEnumerable<object[]> OtherSafetyModes()
     {
-        var r1 = CountermeasureTestChains.BaseChain(0.43, 1);
+        var r1 = CountermeasureTestChains.BaseChain(0, 1);
         var r4 = CountermeasureTestChains.BaseChain();
         yield return new object[] { "chen-R1", r1 with { Safety = SafetySource.ChenOnePeriodError } };
         yield return new object[] { "ewma-R1", r1 with { Safety = SafetySource.EwmaAbsError, AbsErrorSmoothing = 2.0 / 9 } };
@@ -104,14 +104,14 @@ public class SigmaWindowTests
     }
 
     [Theory]
-    [InlineData(16, 1.7071, 2.9949, 5.5593, 10.7656)]
-    [InlineData(24, 1.4373, 2.0813, 3.1175, 4.8054)]
-    [InlineData(32, 1.3152, 1.7294, 2.3246, 3.1871)]
+    [InlineData(16, 1.9091, 3.4281, 6.5053, 12.8599)]
+    [InlineData(24, 1.5549, 2.2866, 3.4787, 5.4451)]
+    [InlineData(32, 1.3970, 1.8574, 2.5254, 3.5029)]
     public void LongerForecastWindow_ClosedFormBr4(int p, double b1, double b2, double b3, double b4)
     {
         var cfg = CountermeasureTestChains.BaseChain() with { Window = p, SigmaWindow = 8 };
         var sim = CountermeasureTestChains.Br4PerStage(cfg, CountermeasureTestChains.Reps);
-        var refs = CountermeasureTestChains.DecentralisedBr4(new[] { 4.43, 4, 4, 4 }, p);
+        var refs = CountermeasureTestChains.DecentralisedBr4(CountermeasureTestChains.Covers(0, 4), p);
         for (int k = 0; k < 4; k++)
         {
             Assert.InRange(refs[k], new[] { b1, b2, b3, b4 }[k] - 5e-4, new[] { b1, b2, b3, b4 }[k] + 5e-4);

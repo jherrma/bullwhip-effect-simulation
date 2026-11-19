@@ -13,7 +13,7 @@ namespace Bullwhip.Core.Chain;
 /// <para>
 /// Cover. S = c·μ̂ + z·σ̂ covers c periods of mean demand: the protection period Lp = L + R − 1, or n·R for the lumpy
 /// incoming demand of an upstream stage at R &gt; 1 (<see cref="PhaseTarget"/>). Deterministic arrivals need an integer L; a
-/// non-integer planning L is a Kaplan mean E[L] (base case 6.4). At R = 1, c = E[L] is exact: the net stock at the end of t
+/// non-integer planning L is a Kaplan mean E[L] (base case 2.43). At R = 1, c = E[L] is exact: the net stock at the end of t
 /// is S_τ − D(τ, t] with τ the newest order already received, and t − τ has the lag distribution of L (Kaplan cuts are iid),
 /// so E[NS] = (c − E[L])·μ + z·σ̂ in every period. At R &gt; 1 the random arrivals smooth the per-phase mean of t − τ (and of
 /// the lumps in (τ, t]), so the worst-phase rule behind PhaseTarget, the cycle-average rule and the order-time rule differ
