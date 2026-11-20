@@ -17,6 +17,10 @@ using KSweep;
 //        dotnet run -c Release --project experiments/KSweep -- countermeasure-smoke <id> [output-file]   (plumbing check only, 2 + 3 replications)
 //        dotnet run -c Release --project experiments/KSweep -- countermeasure-structural <id> [output-file]   (DECISIONS C59, C67, C68: sigma = 0, z = 0; ids lt, lt-dose, ri)
 //        gate-b-bme, upstream-bme, larger-beta-bme: the same studies at the BME base case (factor 6331/2400, DECISIONS C39).
+// Option (any position): --split <s> <i> sets the storage rate s and the capital rate i of every mode built on BaseSweep
+//        (base-kpi, k-base, countermeasure, ...). s + i must equal the default sum (0.10) exactly, so the calibration
+//        (b = 26·h₁, K from (s + i)) is unchanged and only the split between on-hand storage and capital varies.
+//        Without the option the defaults of CostParameters apply. The chosen split is written to stderr only.
 
 CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
 var lines = new List<string>();
@@ -25,6 +29,28 @@ void Say(string line)
 {
     Console.WriteLine(line);
     lines.Add(line);
+}
+
+var defaultCosts = new CostParameters();
+var baseCosts = defaultCosts;
+int splitAt = Array.IndexOf(args, "--split");
+if (splitAt >= 0)
+{
+    if (splitAt + 2 >= args.Length)
+    {
+        throw new ArgumentException("--split needs two values: <storage rate s> <capital rate i>.");
+    }
+
+    double s = double.Parse(args[splitAt + 1], CultureInfo.InvariantCulture);
+    double i = double.Parse(args[splitAt + 2], CultureInfo.InvariantCulture);
+    if (s < 0 || i < 0 || s + i != defaultCosts.StorageRate + defaultCosts.CapitalRate)
+    {
+        throw new ArgumentException($"--split {s} {i}: both rates must be non-negative and s + i must equal the default sum {defaultCosts.StorageRate + defaultCosts.CapitalRate:R} exactly (got {s + i:R}).");
+    }
+
+    baseCosts = defaultCosts with { StorageRate = s, CapitalRate = i };
+    args = args.Take(splitAt).Concat(args.Skip(splitAt + 3)).ToArray();
+    Console.Error.WriteLine($"Holding-cost split: storage rate s = {s:R}, capital rate i = {i:R}, sum {s + i:R}");
 }
 
 string raw = args.Length > 0 ? args[0] : "";
@@ -126,9 +152,9 @@ static SweepSettings BmeNegativeSweep() => new()
 };
 
 // C42: the base case (BME order cost, β = 1, DECISIONS C38, C41). neg = true uses z from −4 to 8, otherwise 0 to 8.
-static SweepSettings BaseSweep(bool neg) => new()
+SweepSettings BaseSweep(bool neg) => new()
 {
-    Costs = new CostParameters(),
+    Costs = baseCosts,
     Scales = new[] { 6331.0 / 2400.0 },
     Grid = neg
         ? Enumerable.Range(0, 49).Select(i => -4.0 + 0.25 * i).ToArray()
@@ -136,7 +162,7 @@ static SweepSettings BaseSweep(bool neg) => new()
 };
 
 // The k-base sweep with the shortage/holding ratio b/h₁ set to the given value; everything else is BaseSweep(neg: false).
-static SweepSettings RatioSweep(double ratio)
+SweepSettings RatioSweep(double ratio)
 {
     var sweep = BaseSweep(neg: false);
     return sweep with { Costs = sweep.Costs with { ShortageToHoldingRatio = ratio } };
@@ -144,7 +170,7 @@ static SweepSettings RatioSweep(double ratio)
 
 // C87: BaseSweep(neg: false) with forecast window p and the sigma-hat window held at 8 order times (its base value at every R,
 // as in measure 04b); R runs through every divisor of p from 2 to p/2.
-static SweepSettings WindowGridSweep(int p)
+SweepSettings WindowGridSweep(int p)
 {
     if (p < 4)
     {
@@ -160,7 +186,7 @@ static SweepSettings WindowGridSweep(int p)
 }
 
 // Plumbing check of the countermeasure mode: replications 9000+, z = 1; the numbers are not valid results.
-static SweepSettings SmokeSweep() => BaseSweep(neg: false) with
+SweepSettings SmokeSweep() => BaseSweep(neg: false) with
 {
     TrainFirst = 9000,
     TrainReps = 2,
@@ -170,7 +196,7 @@ static SweepSettings SmokeSweep() => BaseSweep(neg: false) with
     Passes = 1,
 };
 
-static GateBSettings BaseGateB(bool neg) => new()
+GateBSettings BaseGateB(bool neg) => new()
 {
     Sweep = BaseSweep(neg) with { TrainFirst = 200, TestFirst = 2000 },
 };
