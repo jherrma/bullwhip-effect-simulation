@@ -6,7 +6,7 @@ namespace KSweep;
 /// <summary>Registry of the countermeasure variants that the <c>countermeasure</c> mode can run.</summary>
 public static class Countermeasures
 {
-    private static readonly string[] KnownIds = { "base", "lt", "lt-dose", "is-f", "is-m", "is", "is-lt", "is-lt-parts", "maw" };
+    private static readonly string[] KnownIds = { "base", "lt", "lt-dose", "is-f", "is-m", "is", "is-lt", "is-lt-parts", "maw", "bundle" };
 
     /// <summary>The variants compared with the base for the countermeasure <paramref name="id"/>.</summary>
     public static IReadOnlyList<Variant> For(string id)
@@ -22,6 +22,7 @@ public static class Countermeasures
             "is-lt" => new[] { IsLt },
             "is-lt-parts" => new[] { IsF, LeadTime(1), IsLt },
             "maw" => new[] { 12, 16, 24, 32 }.Select(MovingAverage).ToArray(),
+            "bundle" => new[] { Bundle(32) },
             _ => throw new ArgumentException($"Unknown countermeasure id '{id}'. Known ids: {string.Join(", ", KnownIds)}.", nameof(id)),
         };
     }
@@ -50,6 +51,19 @@ public static class Countermeasures
         Name = "is-f + lt w=1",
         InfoSharing = true,
         LagPmfPerStage = Enumerable.Repeat(0, 4).Select(_ => LagPmfForW(1)).ToArray(),
+    };
+
+    /// <summary>
+    /// The recommended bundle: information sharing (01, IS-F) with the lead-time dose w = 1 (02) and the forecast window p
+    /// (04b). The sigma-hat window stays at 8.
+    /// </summary>
+    private static Variant Bundle(int p) => new()
+    {
+        Name = $"is-f + lt w=1 + ma p={p}",
+        InfoSharing = true,
+        LagPmfPerStage = Enumerable.Repeat(0, 4).Select(_ => LagPmfForW(1)).ToArray(),
+        ForecastWindow = p,
+        SigmaWindow = 8,
     };
 
     /// <summary>

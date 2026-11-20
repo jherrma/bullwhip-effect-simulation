@@ -7,7 +7,8 @@ namespace KSweep;
 /// Command-line demand options of the study modes built on the base sweep: <c>--pattern &lt;name&gt;</c> selects one of the
 /// demand patterns of DECISIONS C51/C52 (stable, seasonal, trend, jump, promotion) with their standard parameters
 /// (<see cref="DemandPatternParameters"/>), and <c>--rho &lt;value&gt;</c> sets the AR(1) autocorrelation of DECISIONS C50
-/// (stationary standard deviation held at sigma). Without either option the demand is the stable base case.
+/// (stationary standard deviation held at sigma), and <c>--sigma &lt;value&gt;</c> sets the demand standard deviation
+/// (base case 10, DECISIONS C52; sensitivity analysis of chapter 4). Without these options the demand is the stable base case.
 /// </summary>
 public sealed record DemandOption
 {
@@ -24,8 +25,11 @@ public sealed record DemandOption
     /// <summary>AR(1) autocorrelation; 0 is the base case.</summary>
     public double Rho { get; init; } = 0;
 
+    /// <summary>Demand standard deviation sigma; 10 is the base case (DECISIONS C52).</summary>
+    public double Sigma { get; init; } = 10;
+
     /// <summary>True if the option leaves the base-case demand unchanged.</summary>
-    public bool IsDefault => Pattern == DemandPattern.Stable && Rho == 0;
+    public bool IsDefault => Pattern == DemandPattern.Stable && Rho == 0 && Sigma == 10;
 
     /// <summary>
     /// Reads <c>--pattern &lt;name&gt;</c> and <c>--rho &lt;value&gt;</c> from any position of <paramref name="args"/> and returns
@@ -36,13 +40,20 @@ public sealed record DemandOption
         var rest = args.ToList();
         string? patternText = TakeValue(rest, "--pattern");
         string? rhoText = TakeValue(rest, "--rho");
+        string? sigmaText = TakeValue(rest, "--sigma");
         var option = new DemandOption
         {
             Pattern = patternText == null ? DemandPattern.Stable : ParsePattern(patternText),
-            Rho = rhoText == null ? 0 : double.Parse(rhoText, NumberStyles.Float, CultureInfo.InvariantCulture),
+            Rho = rhoText == null ? 0 : ParseNumber("--rho", rhoText),
+            Sigma = sigmaText == null ? 10 : ParseNumber("--sigma", sigmaText),
         };
 
-        _ = Ar1Demand.InnovationSigma(1.0, option.Rho); // rejects rho outside (-1, 1)
+        if (!(option.Sigma > 0))
+        {
+            throw new ArgumentException("--sigma must be positive.");
+        }
+
+        _ = Ar1Demand.InnovationSigma(option.Sigma, option.Rho); // rejects rho outside (-1, 1)
         if (option.Pattern != DemandPattern.Stable && option.Rho != 0)
         {
             throw new ArgumentException("--pattern and --rho cannot be combined (DECISIONS C50, C51); use only one.");
@@ -61,7 +72,7 @@ public sealed record DemandOption
     }
 
     /// <summary>The settings with this pattern and rho; the pattern parameters keep their standard values.</summary>
-    public SweepSettings ApplyTo(SweepSettings settings) => settings with { Pattern = Pattern, Rho = Rho };
+    public SweepSettings ApplyTo(SweepSettings settings) => settings with { Pattern = Pattern, Rho = Rho, Sigma = Sigma };
 
     /// <summary>One report line naming the demand, for example "Demand: pattern Jump (J = 0.3 from week 1200)".</summary>
     public string Describe()
@@ -76,7 +87,8 @@ public sealed record DemandOption
             _ => $"AR(1), rho = {Rho:R}, stationary sigma held",
         };
         string name = Pattern == DemandPattern.Stable ? "stable" : $"pattern {Pattern}";
-        return $"Demand: {name} ({detail}; DECISIONS C50-C52)";
+        string sigma = Sigma == 10 ? "" : $"; sigma = {Sigma.ToString("R", CultureInfo.InvariantCulture)}";
+        return $"Demand: {name} ({detail}{sigma}; DECISIONS C50-C52)";
     }
 
     private static string? TakeValue(List<string> args, string flag)
@@ -101,6 +113,11 @@ public sealed record DemandOption
 
         return value;
     }
+
+    private static double ParseNumber(string flag, string text) =>
+        double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double value)
+            ? value
+            : throw new ArgumentException($"{flag} {text}: expected a number.");
 
     private static DemandPattern ParsePattern(string text)
     {
