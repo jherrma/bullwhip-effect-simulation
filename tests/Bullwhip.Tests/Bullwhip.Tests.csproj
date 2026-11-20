@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Bullwhip.Core\Bullwhip.Core.csproj" />
+    <ProjectReference Include="..\..\experiments\KSweep\KSweep.csproj" />
   </ItemGroup>
 
 </Project>
