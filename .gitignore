@@ -1,5 +1,32 @@
+# C# / .NET build output and tool files
 bin/
 obj/
+TestResults/
 results/
 *.user
+*.suo
 .vs/
+*.DotSettings.user
+BenchmarkDotNet.Artifacts/
+
+# Python (scripts/)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Editors and operating system
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Local secrets and environment
+.env
+.env.*
+!.env.example
