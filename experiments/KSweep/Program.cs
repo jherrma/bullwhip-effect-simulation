@@ -27,6 +27,11 @@ using KSweep;
 //        k-base-neg, gate-b-base, gate-b-base-neg, ratio-scan, r-grid-window, countermeasure, countermeasure-smoke); any other
 //        mode refuses them. With either option the report starts with one line naming the demand; without them the demand
 //        is the stable base case and the output is unchanged.
+// Option (any position): --negative-orders allow passes negative orders to the chain unclipped (returns upstream at no
+//        cost, Chen et al. 2000); "allow" is the only accepted value. It applies to the modes listed in
+//        NegativeOrderOption.SupportedModes (the DemandOption modes plus countermeasure-structural); any other mode refuses
+//        it. With the option the report carries one line naming the order rule; without it negative orders are clipped at
+//        zero (base case) and the output is unchanged.
 
 CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
 var lines = new List<string>();
@@ -60,6 +65,7 @@ if (splitAt >= 0)
 }
 
 (DemandOption demandOption, args) = DemandOption.Extract(args);
+(NegativeOrderOption negativeOrderOption, args) = NegativeOrderOption.Extract(args);
 
 string raw = args.Length > 0 ? args[0] : "";
 string baseName = raw.EndsWith("-bme", StringComparison.Ordinal) ? raw[..^4] : raw;
@@ -67,10 +73,17 @@ bool bme = baseName != raw && baseName is "gate-b" or "upstream" or "larger-beta
 string mode = bme ? baseName : raw is "gate-b" or "upstream" or "larger-beta" or "single-stage" or "base-kpi" or "countermeasure" or "countermeasure-smoke" or "countermeasure-structural" or "k-factor" or "k-bme-neg" or "gate-b-base" or "gate-b-base-neg" or "k-base" or "k-base-neg" or "ratio-scan" or "r-grid-window" ? raw : "k-sweep";
 string? output = args.Skip(mode == "k-sweep" ? 0 : mode is "k-factor" or "countermeasure" or "countermeasure-smoke" or "countermeasure-structural" or "ratio-scan" or "r-grid-window" ? 2 : 1).FirstOrDefault();
 demandOption.EnsureSupported(mode);
+negativeOrderOption.EnsureSupported(mode);
 if (!demandOption.IsDefault)
 {
     Console.Error.WriteLine(demandOption.Describe());
     Say(demandOption.Describe());
+}
+
+if (!negativeOrderOption.IsDefault)
+{
+    Console.Error.WriteLine(negativeOrderOption.Describe());
+    Say(negativeOrderOption.Describe());
 }
 
 switch (mode)
@@ -167,14 +180,15 @@ static SweepSettings BmeNegativeSweep() => new()
 
 // C42: the base case (BME order cost, β = 1, DECISIONS C38, C41). neg = true uses z from −4 to 8, otherwise 0 to 8.
 // The demand pattern and rho come from --pattern / --rho (stable, rho = 0 without them).
-SweepSettings BaseSweep(bool neg) => demandOption.ApplyTo(new()
+// Negative orders are clipped at zero unless --negative-orders allow is given.
+SweepSettings BaseSweep(bool neg) => negativeOrderOption.ApplyTo(demandOption.ApplyTo(new()
 {
     Costs = baseCosts,
     Scales = new[] { 6331.0 / 2400.0 },
     Grid = neg
         ? Enumerable.Range(0, 49).Select(i => -4.0 + 0.25 * i).ToArray()
         : Enumerable.Range(0, 33).Select(i => 0.25 * i).ToArray(),
-});
+}));
 
 // The k-base sweep with the shortage/holding ratio b/h₁ set to the given value; everything else is BaseSweep(neg: false).
 SweepSettings RatioSweep(double ratio)

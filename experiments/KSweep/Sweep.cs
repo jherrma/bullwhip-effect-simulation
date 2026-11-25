@@ -50,6 +50,9 @@ public sealed record SweepSettings
     /// <summary>Parameters of the C51 mean profile; Mu and Sigma are overridden by the cost parameters and <see cref="Sigma"/>.</summary>
     public DemandPatternParameters PatternParameters { get; init; } = new();
 
+    /// <summary>If true, negative orders are passed to the chain unclipped (Chen et al. 2000); false clips them at zero (base case).</summary>
+    public bool AllowNegativeOrders { get; init; }
+
     /// <summary>Candidate safety factors: 0 to 8 in steps of 0.25.</summary>
     public double[] Grid { get; init; } = Enumerable.Range(0, 33).Select(i => 0.25 * i).ToArray();
 

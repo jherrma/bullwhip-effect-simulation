@@ -104,7 +104,7 @@ public sealed class ChainCostEvaluator
             CapitalRate = BaseCostModel.CapitalRatePerWeek(costs),
             ShortageCost = BaseCostModel.ShortageCostPerStage(costs, costs.UpstreamShortageMultiplier),
             OrderCost = BaseCostModel.OrderCost(costs),
-            AllowNegativeOrders = false,
+            AllowNegativeOrders = _settings.AllowNegativeOrders,
             InitialMean = costs.Mu,
             Warmup = _settings.Warmup,
             Window = _settings.Window,
